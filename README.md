@@ -35,6 +35,13 @@ generator rolls several and keeps the most interesting (scored with the same
 [sweep metrics](docs/metrics.md)).
 Keyboard: `space` play/pause, `s` step, `r` reseed, `n` new random universe.
 
+Toggle **color cells by → lifetime** to color every cell by how many generations
+it has stayed alive (cool = just born, warm = ancient) — it reveals the dynamical
+structure state-coloring hides: stable cores vs. churning edges, old-growth vs.
+high-turnover. Works in every fixed-grid family.
+
+![cells colored by lifetime](docs/img/age.png)
+
 ![four random universes](docs/img/random.png)
 
 *Random **rules** (above) vs. procedurally generated **types** (below) — the

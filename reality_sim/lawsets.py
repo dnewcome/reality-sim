@@ -110,6 +110,12 @@ def gradient_palette(stops: list[tuple[float, str]], n: int = 256) -> list[str]:
 _LENIA_STOPS = [(0.0, "#04060f"), (0.25, "#0b2f5e"), (0.5, "#1a9aa0"),
                 (0.75, "#f2e85c"), (1.0, "#ffffff")]
 
+# "Lifetime" heat ramp: index 0 = dead (dark), then just-born (blue) up through
+# ancient (red) — used when the viewer colors cells by how long they've stayed alive.
+_AGE_STOPS = [(0.0, "#05060a"), (0.03, "#2b6be0"), (0.22, "#38d6ff"),
+              (0.42, "#3ef08a"), (0.62, "#f2e85c"), (0.82, "#ff8a3d"), (1.0, "#ff4d6d")]
+AGE_PALETTE = gradient_palette(_AGE_STOPS, 256)
+
 
 # --- life-like universes (2-state) -------------------------------------------
 

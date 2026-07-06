@@ -78,10 +78,34 @@ class Session:
         self.cam_y = 0
         self.zoom = 1
 
+        # Color mode: "state" (each cell's value) or "age" (how many consecutive
+        # generations it has been alive). Age is tracked here, not in the engine.
+        self.color_mode = "state"
+        self.age = np.zeros((self.h, self.w), dtype=np.uint16)
+
         self.engine = self._make_engine()
 
         self.frame_dirty = True   # a new frame needs sending this tick
         self.status_dirty = True  # structural state changed; resend status
+
+    def _reset_age(self) -> None:
+        self.age = np.zeros((self.h, self.w), dtype=np.uint16)
+
+    def _age_tick(self) -> None:
+        """After a step: increment age where alive, reset to 0 where dead."""
+        if self.infinite:
+            return
+        g = self.engine.grid
+        if self.age.shape != g.shape:
+            self._reset_age()
+            return
+        alive = g != 0
+        self.age = np.where(alive, np.minimum(self.age.astype(np.int32) + 1, 65535), 0).astype(np.uint16)
+
+    def _step(self) -> None:
+        """Advance one generation and update the age buffer (single choke point)."""
+        self.engine.step()
+        self._age_tick()
 
     def _make_engine(self):
         if self.infinite:
@@ -113,13 +137,15 @@ class Session:
             self.status_dirty = True
         elif c == "step":
             if not self.playing:
-                self.engine.step()
+                self._step()
                 self.frame_dirty = True
         elif c == "reset":
             self.engine.seed()
+            self._reset_age()
             self.frame_dirty = self.status_dirty = True
         elif c == "clear":
             self.engine.clear()
+            self._reset_age()
             self.frame_dirty = self.status_dirty = True
         elif c == "set_lawset":
             self._set_lawset(cmd.get("id"))
@@ -134,6 +160,7 @@ class Session:
                 self.engine.view_w, self.engine.view_h = self.w, self.h
             else:
                 self.engine.resize((self.h, self.w))
+            self._reset_age()
             self.frame_dirty = self.status_dirty = True
         elif c == "paint":
             self._paint(cmd)
@@ -156,6 +183,9 @@ class Session:
                 self.frame_dirty = True
         elif c == "random":
             self._random_universe()
+        elif c == "set_color_mode":
+            self.color_mode = "age" if cmd.get("mode") == "age" else "state"
+            self.frame_dirty = self.status_dirty = True
 
     def _paint(self, cmd: dict) -> None:
         try:
@@ -179,6 +209,7 @@ class Session:
         self.cam_x = self.cam_y = 0
         self.zoom = 1
         self.engine = self._make_engine()
+        self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
     def _random_universe(self) -> None:
@@ -189,6 +220,7 @@ class Session:
         self.cam_x = self.cam_y = 0
         self.zoom = 1
         self.engine = self._make_engine()
+        self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
     def _set_lawset(self, lid) -> None:
@@ -203,6 +235,7 @@ class Session:
             self.cam_x = self.cam_y = 0
             self.zoom = 1
         self.engine = self._make_engine()
+        self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
     def _set_param(self, key, value) -> None:
@@ -251,6 +284,10 @@ class Session:
             # same w x h uint8 format, just a *view* rather than the whole world.
             arr, _, _ = self.engine.viewport(self.cam_x, self.cam_y, self.w, self.h, self.zoom)
             g = np.ascontiguousarray(arr, dtype=np.uint8)
+        elif self.color_mode == "age":
+            # Stream per-cell age (capped to 255); the client renders it with the
+            # age-gradient palette we send in the status. Same binary format.
+            g = np.ascontiguousarray(np.minimum(self.age, 255), dtype=np.uint8)
         else:
             g = np.ascontiguousarray(self.engine.grid, dtype=np.uint8)
         h, w = g.shape
@@ -276,18 +313,24 @@ class Session:
         ls = self.lawset
         params = dict(ls.params)
         params["density"] = ls.seed.get("density")
+        # In age mode we swap in the age-gradient palette (256 entries); the client's
+        # render path is unchanged — it just colors the age bytes with this palette.
+        age_mode = self.color_mode == "age" and not self.infinite
+        palette = lawsets.AGE_PALETTE if age_mode else ls.palette
+        states = 256 if age_mode else ls.states
         await self.send_json({
             "type": "status",
             "lawset": self.lawset_id,
             "name": ls.name,             # so one-off random universes can show a label
             "description": ls.description,
             "family": ls.family,         # which engine/kind of automaton this is
+            "color_mode": self.color_mode,
             "playing": self.playing,
             "fps": self.fps,
             "w": self.w,
             "h": self.h,
-            "states": ls.states,
-            "palette": ls.palette,       # live: regenerated when e.g. `states` changes
+            "states": states,
+            "palette": palette,          # live: regenerated when e.g. `states` changes
             "controls": ls.controls,     # the tunable-knob spec for this universe
             "params": params,            # current knob values (incl. seed density)
             "infinite": self.infinite,   # is the world an unbounded plane right now
@@ -316,7 +359,7 @@ class Session:
                 self.handle(self.queue.get_nowait())
 
             if self.playing:
-                self.engine.step()
+                self._step()
                 self.frame_dirty = True
 
             if self.frame_dirty:

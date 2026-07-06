@@ -144,6 +144,9 @@ function onJson(msg) {
     infinite = !!msg.infinite;
     canInfinite = !!msg.can_infinite;
     if (msg.zoom) zoom = msg.zoom;
+    const cm = msg.color_mode || "state";     // reflect color mode on the toggle
+    el("btn-color-state").classList.toggle("on", cm === "state");
+    el("btn-color-age").classList.toggle("on", cm === "age");
     // (Re)build the parameter panel only when the universe changes, so tuning a
     // knob (which echoes a status) never yanks a slider out from under the mouse.
     if (msg.controls && msg.lawset !== builtForId) {
@@ -365,6 +368,9 @@ el("btn-infinite").onclick = () => { if (canInfinite) send({ cmd: "set_boundary"
 el("btn-zoomin").onclick = () => setZoom(zoom / 2);
 el("btn-zoomout").onclick = () => setZoom(zoom * 2);
 el("btn-recenter").onclick = () => send({ cmd: "recenter" });
+
+el("btn-color-state").onclick = () => send({ cmd: "set_color_mode", mode: "state" });
+el("btn-color-age").onclick = () => send({ cmd: "set_color_mode", mode: "age" });
 
 // keyboard: space = play/pause, s = step
 window.addEventListener("keydown", (e) => {
