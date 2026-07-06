@@ -25,7 +25,7 @@ The fields:
 | `id` | short stable identifier — used in URLs / the `set_lawset` command |
 | `name` | human label shown in the picker |
 | `description` | what this universe *is* / what emerges — shown under the picker |
-| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, `"forestfire"`, `"totalistic"`, or `"lenia"` today) |
+| `family` | which engine evolves it; a key in `engine.ENGINES` (`"life"`, `"excitable"`, `"forestfire"`, `"totalistic"`, `"lenia"`, or `"levelset"` today) |
 | `states` | number of distinct cell states, `0..states-1` |
 | `params` | family-specific rule parameters (see below) |
 | `palette` | one `"#rrggbb"` string per state, index == state value |
@@ -73,6 +73,17 @@ palette (`gradient_palette(...)`), so the rest of the stack is unchanged. `mu`/`
 are live-tunable and morph the "creatures" in place. `random_lenia()` generates and
 curates continuous types the same way `random_type()` does for discrete ones. This
 is the first *continuous* primitive of the eventual rule-grammar.
+
+The **`"levelset"`** family is *geometric*: the state is a signed distance field
+(negative inside a shape, positive outside), and the rule evolves the *interface*.
+`params` are `{grow, tension, reinit}` — the constant normal speed (grow/erode),
+the surface-tension (curvature-flow) weight, and how often the field is re-distanced.
+Each step shifts the field by `grow`, adds `tension·κ` (mean curvature), and every
+`reinit` steps recomputes the exact SDF from the shape via
+`scipy.ndimage.distance_transform_edt` (the field must evolve *continuously* between
+re-distancings or a hard `phi<0` threshold would freeze sub-cell motion). Rendered
+by quantizing the field to `uint8` (states=256) with a diverging palette. `grow` is
+allowed to go negative (erosion); `random_levelset_lawset()` samples it for the dice.
 
 ### Live-tunable controls
 

@@ -59,6 +59,15 @@ random soup by default. Tune growth center `μ` / width `σ` live to morph them.
 
 ![continuous Lenia types](docs/img/lenia.png)
 
+A third flavor is **geometric**: the `levelset` family is a *signed-distance-field*
+automaton — the state is the distance to the nearest surface, and the rule evolves
+the *shapes* themselves. They grow or erode (shift the field), merge and pinch off
+(topology changes), and round out under surface tension (curvature flow), with exact
+re-distancing each step via `scipy`'s distance transform. Tune **grow/erode** and
+**surface tension** live to inflate, dissolve, or relax them.
+
+![level-set shapes](docs/img/levelset.png)
+
 ## Headless / batch
 
 ```python
@@ -86,6 +95,8 @@ The engine is fully vectorized (neighbor counts via `scipy.ndimage.convolve`,
 | `excitable` | excitable | Greenberg-Hastings, 16 states — spiral waves with a definite signal speed |
 | `forestfire` | forestfire | Drossel-Schwabl — stochastic; self-organizes to criticality |
 | `lenia` | lenia | continuous CA — real-valued cells, smooth kernel + growth; organism-like "creatures" |
+| `totalistic` | totalistic | generative — a random multi-state transition table (a new *type* per roll) |
+| `levelset` | levelset | signed-distance-field automaton — a universe of shapes that grow, merge, split, and relax |
 
 Every universe exposes **live-tunable knobs** in the viewer — edit the law while
 it runs and the pattern reacts in place (the grid isn't reset): toggle Conway's
@@ -167,10 +178,13 @@ writer, so there are no interleaved-send races.
 - **✅ generative types** — the `totalistic` family (discrete transition tables)
   and `lenia` (continuous kernel + growth) generate new *kinds* of automata,
   curated by the sweep metrics. Two type-primitives so far.
-- **more type-primitives** — extend the grammar: 1D elementary CA (Rule 30/110,
-  à la *A New Kind of Science*), signed-distance-field / level-set automata
-  (shapes that grow, merge, and relax under curvature flow), larger-than-life,
-  reaction-diffusion — all sampled and ML-curated.
+- **✅ SDF / level-set automaton** — the `levelset` family: a universe of shapes
+  (grow/erode + surface tension + exact re-distancing). Three type-primitives now:
+  discrete tables, continuous fields, and geometric distance fields.
+- **more type-primitives** — graph / network automata (CA on an arbitrary
+  node-edge topology, no lattice), 1D elementary CA (Rule 30/110, à la *A New Kind
+  of Science*), hex / triangular grids, larger-than-life, reaction-diffusion — all
+  sampled and ML-curated.
 - **active search** — use the learned surrogate + Bayesian optimization to
   *propose* laws in the rare Complex corner instead of sampling uniformly.
 - **complexity / replication frontier** — measure how fast self-replicating or

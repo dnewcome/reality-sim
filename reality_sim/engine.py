@@ -429,12 +429,122 @@ class LeniaEngine(Engine):
         }
 
 
+class LevelSetEngine(Engine):
+    """A signed-distance-field / level-set automaton — a universe of *shapes*.
+
+    The state is a signed distance field phi: negative inside a shape, positive
+    outside, zero on the surface. The "matter" is the region phi < 0. Each step
+    evolves the *interface* (the zero level set) by two geometric operators:
+
+      * **grow / erode** — shift phi by a constant; since phi is a true distance,
+        subtracting `grow` moves every surface outward by exactly that many cells
+        (negative `grow` erodes).
+      * **surface tension** — motion by mean curvature `kappa = div(grad phi/|grad phi|)`:
+        convex bumps shrink, concave dents fill, thin necks pinch and split. This
+        is what rounds shapes and makes them merge/relax like droplets.
+
+    After evolving, phi is **re-distanced** — recomputed as the exact signed
+    distance to the new interface via `scipy`'s Euclidean distance transform — so it
+    stays a true SDF and the operators keep their geometric meaning. Grow vs. tension
+    balance into stable rounded blobs that merge and pinch off.
+    """
+
+    family = "levelset"
+
+    def __init__(self, lawset, shape, rng):
+        self._configure(lawset)
+        super().__init__(lawset, shape, rng)
+
+    def _configure(self, lawset: LawSet) -> None:
+        p = lawset.params
+        self.grow = float(p.get("grow", 0.3))
+        self.tension = float(p.get("tension", 0.5))
+        self.reinit = int(p.get("reinit", 5))       # re-distance every N steps
+        self.quant = float(p.get("quant", 10.0))    # cells-per-palette-step near the surface
+        self._rc = 0
+
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self._configure(lawset)
+
+    def _redistance(self, interior: np.ndarray) -> None:
+        edt = ndimage.distance_transform_edt
+        if not interior.any():
+            self.phi = edt(np.ones_like(interior))
+        elif interior.all():
+            self.phi = -edt(interior)
+        else:
+            self.phi = (edt(~interior) - edt(interior)).astype(np.float64)
+
+    def _quantize(self) -> None:
+        # far exterior -> 0 (background), surface -> 128, deep interior -> 255
+        q = np.clip(128.0 - self.phi * self.quant, 0, 255)
+        self.grid = q.astype(np.uint8)
+
+    def seed(self) -> None:
+        recipe = self.lawset.seed
+        kind = recipe.get("kind", "random")
+        interior = np.zeros((self.h, self.w), dtype=bool)
+        if kind == "random":
+            density = float(recipe.get("density", 0.4))
+            n = max(1, int(round(density * 10)))
+            yy, xx = np.ogrid[:self.h, :self.w]
+            lo, hi = min(self.h, self.w) // 12, max(min(self.h, self.w) // 5, min(self.h, self.w) // 12 + 1)
+            for _ in range(n):
+                cy = int(self.rng.integers(0, self.h))
+                cx = int(self.rng.integers(0, self.w))
+                rad = int(self.rng.integers(lo, hi))
+                interior |= (yy - cy) ** 2 + (xx - cx) ** 2 <= rad * rad
+        elif kind != "clear":
+            raise ValueError(f"unknown seed kind: {kind!r}")
+        self._redistance(interior)
+        self.generation = 0
+        self._quantize()
+
+    def clear(self) -> None:
+        self.phi = np.full((self.h, self.w), 20.0)   # all exterior (empty)
+        self.generation = 0
+        self._quantize()
+
+    def step(self) -> None:
+        phi = self.phi
+        gy, gx = np.gradient(phi)
+        mag = np.sqrt(gx * gx + gy * gy) + 1e-6
+        nx, ny = gx / mag, gy / mag
+        kappa = np.gradient(nx, axis=1) + np.gradient(ny, axis=0)   # divergence of normal
+        np.clip(kappa, -1.0, 1.0, out=kappa)
+        # Evolve the field continuously so sub-cell motion accumulates; re-distance
+        # only every `reinit` steps (else a hard phi<0 threshold would freeze motion).
+        self.phi = phi - self.grow + self.tension * kappa
+        self._rc += 1
+        if self._rc >= self.reinit:
+            self._redistance(self.phi < 0)
+            self._rc = 0
+        self.generation += 1
+        self._quantize()
+
+    def paint(self, r: int, c: int, value: int, radius: int = 0) -> None:
+        radius = max(radius, 2)
+        yy, xx = np.ogrid[:self.h, :self.w]
+        disk = (yy - int(r)) ** 2 + (xx - int(c)) ** 2 <= radius * radius
+        interior = self.phi < 0
+        interior = (interior | disk) if int(value) > 0 else (interior & ~disk)
+        self._redistance(interior)
+        self._quantize()
+
+    def stats(self) -> dict:
+        area = int(np.count_nonzero(self.phi < 0))
+        return {"generation": self.generation, "live": area,
+                "area": round(area / (self.h * self.w), 4)}
+
+
 ENGINES: dict[str, type[Engine]] = {
     "life": LifeEngine,
     "excitable": ExcitableEngine,
     "forestfire": ForestFireEngine,
     "totalistic": TotalisticCA,
     "lenia": LeniaEngine,
+    "levelset": LevelSetEngine,
 }
 
 

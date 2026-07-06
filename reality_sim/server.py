@@ -254,6 +254,10 @@ class Session:
             elif key in ("p", "f", "mu", "sigma"):
                 v = max(0.0, min(1.0, float(value)))
                 self.lawset = replace(ls, params={**ls.params, key: v})
+            elif key == "grow":                       # level-set: can be negative (erode)
+                self.lawset = replace(ls, params={**ls.params, "grow": max(-1.0, min(1.0, float(value)))})
+            elif key == "tension":
+                self.lawset = replace(ls, params={**ls.params, "tension": max(0.0, min(2.0, float(value)))})
             elif key == "density":
                 d = max(0.0, min(1.0, float(value)))
                 self.lawset = replace(ls, seed={**ls.seed, "density": d})

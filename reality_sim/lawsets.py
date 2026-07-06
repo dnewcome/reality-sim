@@ -60,6 +60,14 @@ def lenia_controls() -> list[dict]:
     ]
 
 
+def levelset_controls() -> list[dict]:
+    return [
+        {"key": "grow", "label": "grow / erode", "type": "float", "min": -1.0, "max": 1.0, "step": 0.05},
+        {"key": "tension", "label": "surface tension", "type": "float", "min": 0.0, "max": 1.5, "step": 0.05},
+        {"key": "density", "label": "seed blobs", "type": "float", "min": 0.05, "max": 1.0, "step": 0.05},
+    ]
+
+
 # --- palettes -----------------------------------------------------------------
 
 _LIFE_PALETTE = ["#0b0f1a", "#e8f0ff"]
@@ -115,6 +123,11 @@ _LENIA_STOPS = [(0.0, "#04060f"), (0.25, "#0b2f5e"), (0.5, "#1a9aa0"),
 _AGE_STOPS = [(0.0, "#05060a"), (0.03, "#2b6be0"), (0.22, "#38d6ff"),
               (0.42, "#3ef08a"), (0.62, "#f2e85c"), (0.82, "#ff8a3d"), (1.0, "#ff4d6d")]
 AGE_PALETTE = gradient_palette(_AGE_STOPS, 256)
+
+# Diverging distance-field ramp: far exterior (0) dark, surface (128) bright, deep
+# interior (255) a saturated color — so shapes read as glowing filled blobs.
+_SDF_STOPS = [(0.0, "#05070d"), (0.42, "#0e1c33"), (0.5, "#eaf4ff"),
+              (0.62, "#2aa7c8"), (1.0, "#0a4a63")]
 
 
 # --- life-like universes (2-state) -------------------------------------------
@@ -249,6 +262,25 @@ register(LawSet(
     palette=["#07070d", "#5cc8ff", "#ffd76a", "#ff6b8a"],
     seed={"kind": "random", "density": 0.5},
     controls=[{"key": "density", "label": "seed density", "type": "float", "min": 0.05, "max": 1.0, "step": 0.05}],
+))
+
+
+# --- Level set: a universe of shapes (signed distance fields) -----------------
+
+register(LawSet(
+    id="levelset",
+    name="Level Set",
+    description=(
+        "A signed-distance-field automaton — a universe of shapes. Blobs grow, "
+        "merge, split, and relax under surface tension (curvature flow). Tune "
+        "grow/erode and surface tension live to inflate, dissolve, or round them."
+    ),
+    family="levelset",
+    states=256,
+    params={"grow": 0.18, "tension": 0.6, "reinit": 5},
+    palette=gradient_palette(_SDF_STOPS),
+    seed={"kind": "random", "density": 0.4},
+    controls=levelset_controls(),
 ))
 
 
@@ -395,21 +427,51 @@ def random_lenia(rng: np.random.Generator, tries: int = 5) -> LawSet:
     return best if best is not None else random_lenia_lawset(rng)
 
 
+def _random_sdf_palette(rng: np.random.Generator) -> list[str]:
+    hue = float(rng.random())
+    interior = _color(rng, hue=(hue, hue))
+    deep = _color(rng, hue=(hue, hue), sat=(0.6, 0.9), val=(0.35, 0.55))
+    return gradient_palette([(0.0, "#05070d"), (0.42, "#0e1c33"), (0.5, "#eaf4ff"),
+                             (0.62, interior), (1.0, deep)])
+
+
+def random_levelset_lawset(rng: np.random.Generator) -> LawSet:
+    """A random SDF/level-set universe: random growth/tension balance + random
+    interior color. Both operators give clearly visible motion, so no curation
+    needed — just keep grow mild-positive so shapes neither vanish nor fill space."""
+    grow = round(float(rng.uniform(0.05, 0.30)), 2)
+    tension = round(float(rng.uniform(0.25, 0.9)), 2)
+    tag = int(rng.integers(1000, 10000))
+    return LawSet(
+        id=f"rnd-{tag}",
+        name="random type · Level-set",
+        description=f"a procedurally generated SDF/level-set universe (grow={grow}, tension={tension})",
+        family="levelset",
+        states=256,
+        params={"grow": grow, "tension": tension, "reinit": 5},
+        palette=_random_sdf_palette(rng),
+        seed={"kind": "random", "density": round(float(rng.uniform(0.25, 0.6)), 2)},
+        controls=levelset_controls(),
+    )
+
+
 def random_lawset(rng: np.random.Generator) -> LawSet:
     """Invent a fresh, random universe. Picks a random engine family and random
     parameters within sensible ranges, plus a random palette so every roll looks
     distinct. Sometimes generates a whole new *type*: a curated random totalistic
-    CA (discrete) or a curated random Lenia (continuous). Otherwise a random rule
-    within a known family. Excitable always uses threshold=1."""
+    CA (discrete), a curated random Lenia (continuous), or a random SDF/level-set
+    world of shapes. Otherwise a random rule within a known family."""
     from . import rulespace  # local import avoids any import-order cycle
 
-    # totalistic ×2 and lenia → ~50% of rolls are a procedurally generated TYPE.
+    # totalistic ×2, lenia, levelset → ~55% of rolls are a procedurally generated TYPE.
     family = ("life", "excitable", "forestfire",
-              "totalistic", "totalistic", "lenia")[int(rng.integers(0, 6))]
+              "totalistic", "totalistic", "lenia", "levelset")[int(rng.integers(0, 7))]
     if family == "totalistic":
         return random_type(rng)
     if family == "lenia":
         return random_lenia(rng)
+    if family == "levelset":
+        return random_levelset_lawset(rng)
 
     tag = int(rng.integers(1000, 10000))
 
