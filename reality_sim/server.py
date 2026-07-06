@@ -218,7 +218,7 @@ class Session:
             elif key == "states":
                 n = _clamp(value, 2, 64)
                 self.lawset = replace(ls, states=n, palette=lawsets.excitable_palette(n))
-            elif key in ("p", "f"):
+            elif key in ("p", "f", "mu", "sigma"):
                 v = max(0.0, min(1.0, float(value)))
                 self.lawset = replace(ls, params={**ls.params, key: v})
             elif key == "density":

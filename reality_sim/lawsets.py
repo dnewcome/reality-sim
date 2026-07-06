@@ -52,6 +52,14 @@ def forestfire_controls() -> list[dict]:
     ]
 
 
+def lenia_controls() -> list[dict]:
+    return [
+        {"key": "mu", "label": "growth center  μ", "type": "float", "min": 0.0, "max": 0.5, "step": 0.005},
+        {"key": "sigma", "label": "growth width  σ", "type": "float", "min": 0.005, "max": 0.08, "step": 0.001},
+        {"key": "density", "label": "seed density", "type": "float", "min": 0.1, "max": 1.0, "step": 0.05},
+    ]
+
+
 # --- palettes -----------------------------------------------------------------
 
 _LIFE_PALETTE = ["#0b0f1a", "#e8f0ff"]
@@ -72,6 +80,35 @@ def excitable_palette(n: int) -> list[str]:
         b = int(255 * (1 - t) + 90 * t)
         pal.append(f"#{r:02x}{g:02x}{b:02x}")
     return pal
+
+
+def _lerp_hex(c0: str, c1: str, t: float) -> str:
+    a = [int(c0[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(int(round(a[k] + (b[k] - a[k]) * t)) for k in range(3))
+
+
+def gradient_palette(stops: list[tuple[float, str]], n: int = 256) -> list[str]:
+    """Interpolate a list of (position, hex) stops into an n-entry gradient — used
+    to render continuous (Lenia) fields as 256 quantized colors."""
+    pal = []
+    for i in range(n):
+        t = i / (n - 1)
+        if t <= stops[0][0]:
+            pal.append(stops[0][1]); continue
+        if t >= stops[-1][0]:
+            pal.append(stops[-1][1]); continue
+        for j in range(len(stops) - 1):
+            p0, c0 = stops[j]
+            p1, c1 = stops[j + 1]
+            if p0 <= t <= p1:
+                pal.append(_lerp_hex(c0, c1, (t - p0) / (p1 - p0) if p1 > p0 else 0.0))
+                break
+    return pal
+
+
+_LENIA_STOPS = [(0.0, "#04060f"), (0.25, "#0b2f5e"), (0.5, "#1a9aa0"),
+                (0.75, "#f2e85c"), (1.0, "#ffffff")]
 
 
 # --- life-like universes (2-state) -------------------------------------------
@@ -163,6 +200,25 @@ register(LawSet(
 ))
 
 
+# --- Lenia: a continuous universe (real-valued cells) ------------------------
+
+register(LawSet(
+    id="lenia",
+    name="Lenia",
+    description=(
+        "A continuous CA — real-valued cells evolved by a smooth kernel and a "
+        "growth function. Glider-like 'creatures' crawl out of the soup. Tune the "
+        "growth center μ / width σ to morph them (or reseed for new life)."
+    ),
+    family="lenia",
+    states=256,
+    params={"R": 13, "mu": 0.15, "sigma": 0.03, "dt": 0.1, "beta": [1.0]},
+    palette=gradient_palette(_LENIA_STOPS),
+    seed={"kind": "random", "density": 0.6},
+    controls=lenia_controls(),
+))
+
+
 # --- random universe generation ----------------------------------------------
 
 def _color(rng: np.random.Generator, hue=None, sat=(0.55, 0.95), val=(0.85, 1.0)) -> str:
@@ -242,18 +298,73 @@ def random_type(rng: np.random.Generator, tries: int = 10) -> LawSet:
     return best
 
 
+def _random_gradient(rng: np.random.Generator, n: int = 256) -> list[str]:
+    h = float(rng.random())
+    mid = _color(rng, hue=(h, h))
+    hi = _color(rng, hue=((h + 0.12) % 1.0, (h + 0.12) % 1.0), sat=(0.15, 0.4), val=(0.95, 1.0))
+    return gradient_palette([(0.0, "#04060f"), (0.5, mid), (1.0, hi)], n)
+
+
+def random_lenia_lawset(rng: np.random.Generator) -> LawSet:
+    """A random *continuous* universe (Lenia): random kernel rings + growth params."""
+    R = int(rng.integers(10, 17))
+    nb = int(rng.integers(1, 4))                    # 1..3 concentric rings
+    beta = [round(float(rng.uniform(0.3, 1.0)), 2) for _ in range(nb)]
+    beta[0] = 1.0
+    mu = round(float(rng.uniform(0.12, 0.30)), 3)
+    sigma = round(float(rng.uniform(0.02, 0.05)), 3)
+    tag = int(rng.integers(1000, 10000))
+    return LawSet(
+        id=f"rnd-{tag}",
+        name=f"random type · Lenia R{R}",
+        description=f"a procedurally generated CONTINUOUS universe (Lenia, R={R}, μ={mu}, σ={sigma})",
+        family="lenia",
+        states=256,
+        params={"R": R, "mu": mu, "sigma": sigma, "dt": 0.1, "beta": beta},
+        palette=_random_gradient(rng),
+        seed={"kind": "random", "density": round(float(rng.uniform(0.4, 0.8)), 2)},
+        controls=lenia_controls(),
+    )
+
+
+def _lenia_score(lawset: LawSet) -> float:
+    """Curation score for a continuous type: alive (mass in a sane band) and
+    structured (high spatial std → localized creatures, not uniform gray)."""
+    from .engine import make_engine
+    eng = make_engine(lawset, (48, 48), np.random.default_rng(0))
+    for _ in range(80):
+        eng.step()
+    m = float(eng.field.mean())
+    if m < 0.01 or m > 0.55:
+        return 0.0
+    return float(eng.field.std())
+
+
+def random_lenia(rng: np.random.Generator, tries: int = 5) -> LawSet:
+    best, best_score = None, -1.0
+    for _ in range(tries):
+        cand = random_lenia_lawset(rng)
+        s = _lenia_score(cand)
+        if s > best_score:
+            best, best_score = cand, s
+    return best if best is not None else random_lenia_lawset(rng)
+
+
 def random_lawset(rng: np.random.Generator) -> LawSet:
     """Invent a fresh, random universe. Picks a random engine family and random
     parameters within sensible ranges, plus a random palette so every roll looks
-    distinct. Sometimes generates a whole new *type* (a curated random totalistic
-    CA); otherwise a random rule within a known family. Excitable always uses
-    threshold=1 (see [[greenberg-hastings-tuning]])."""
+    distinct. Sometimes generates a whole new *type*: a curated random totalistic
+    CA (discrete) or a curated random Lenia (continuous). Otherwise a random rule
+    within a known family. Excitable always uses threshold=1."""
     from . import rulespace  # local import avoids any import-order cycle
 
-    # "totalistic" appears twice → ~40% of rolls are a procedurally generated TYPE.
-    family = ("life", "excitable", "forestfire", "totalistic", "totalistic")[int(rng.integers(0, 5))]
+    # totalistic ×2 and lenia → ~50% of rolls are a procedurally generated TYPE.
+    family = ("life", "excitable", "forestfire",
+              "totalistic", "totalistic", "lenia")[int(rng.integers(0, 6))]
     if family == "totalistic":
         return random_type(rng)
+    if family == "lenia":
+        return random_lenia(rng)
 
     tag = int(rng.integers(1000, 10000))
 

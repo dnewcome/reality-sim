@@ -25,7 +25,7 @@ The fields:
 | `id` | short stable identifier — used in URLs / the `set_lawset` command |
 | `name` | human label shown in the picker |
 | `description` | what this universe *is* / what emerges — shown under the picker |
-| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, `"forestfire"`, or `"totalistic"` today) |
+| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, `"forestfire"`, `"totalistic"`, or `"lenia"` today) |
 | `states` | number of distinct cell states, `0..states-1` |
 | `params` | family-specific rule parameters (see below) |
 | `palette` | one `"#rrggbb"` string per state, index == state value |
@@ -62,6 +62,17 @@ not just new parameters — this is what backs the "🎲 New random universe" bu
 generated types (`lawsets.random_type()`), which rolls several and keeps the most
 interesting by the [sweep metrics](metrics.md). You normally generate these rather
 than hand-write them.
+
+The **`"lenia"`** family is *continuous* — a different kind of automaton entirely.
+Cells are real values in `[0, 1]` (not discrete states); the rule is a smooth
+radial **kernel** plus a **growth function** `G(u) = 2·exp(-((u-μ)²)/(2σ²)) - 1`,
+integrated as `A += dt·G(K*A)`. `params` are `{R, mu, sigma, dt, beta}` (kernel
+radius, growth center/width, timestep, and ring weights). For streaming/rendering
+the float field is quantized to `uint8` with `states=256` and a 256-entry gradient
+palette (`gradient_palette(...)`), so the rest of the stack is unchanged. `mu`/`sigma`
+are live-tunable and morph the "creatures" in place. `random_lenia()` generates and
+curates continuous types the same way `random_type()` does for discrete ones. This
+is the first *continuous* primitive of the eventual rule-grammar.
 
 ### Live-tunable controls
 

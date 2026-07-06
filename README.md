@@ -42,6 +42,14 @@ totalistic family's random tables produce genuinely new kinds of automata:*
 
 ![five generated types](docs/img/types.png)
 
+Types come in two flavors so far: **discrete** (totalistic transition tables) and
+**continuous** (`lenia` — real-valued cells evolved by a smooth kernel + growth
+function, quantized to 256 shades for display). Continuous types look nothing like
+the discrete ones — soft, organism-like membranes and cells. Tune growth center
+`μ` / width `σ` live to morph them.
+
+![continuous Lenia types](docs/img/lenia.png)
+
 ## Headless / batch
 
 ```python
@@ -68,6 +76,7 @@ The engine is fully vectorized (neighbor counts via `scipy.ndimage.convolve`,
 | `daynight` | life | B3678/S34678 — matter/vacuum-symmetric domains |
 | `excitable` | excitable | Greenberg-Hastings, 16 states — spiral waves with a definite signal speed |
 | `forestfire` | forestfire | Drossel-Schwabl — stochastic; self-organizes to criticality |
+| `lenia` | lenia | continuous CA — real-valued cells, smooth kernel + growth; organism-like "creatures" |
 
 Every universe exposes **live-tunable knobs** in the viewer — edit the law while
 it runs and the pattern reacts in place (the grid isn't reset): toggle Conway's
@@ -146,12 +155,13 @@ writer, so there are no interleaved-send races.
 - **✅ infinite grids** — unbounded tiled plane for the life family; see
   [docs/infinite-grids.md](docs/infinite-grids.md). Next: extend the tiling to the
   excitable family, and 3D.
-- **✅ generative types** — the `totalistic` family generates new *kinds* of
-  automata (random transition tables), curated by the sweep metrics.
-- **new automata types (rule DSL)** — a grammar of update rules (states,
-  neighborhoods, kernels, growth functions) sampled to invent open-ended new
-  types beyond totalistic CA — continuous/Lenia, larger-than-life, reaction-
-  diffusion — with ML curation to find the gems.
+- **✅ generative types** — the `totalistic` family (discrete transition tables)
+  and `lenia` (continuous kernel + growth) generate new *kinds* of automata,
+  curated by the sweep metrics. Two type-primitives so far.
+- **more type-primitives** — extend the grammar: 1D elementary CA (Rule 30/110,
+  à la *A New Kind of Science*), signed-distance-field / level-set automata
+  (shapes that grow, merge, and relax under curvature flow), larger-than-life,
+  reaction-diffusion — all sampled and ML-curated.
 - **active search** — use the learned surrogate + Bayesian optimization to
   *propose* laws in the rare Complex corner instead of sampling uniformly.
 - **complexity / replication frontier** — measure how fast self-replicating or

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from .lawset import LawSet
 from .engine import (
-    Engine, LifeEngine, ExcitableEngine, ForestFireEngine, TotalisticCA,
+    Engine, LifeEngine, ExcitableEngine, ForestFireEngine, TotalisticCA, LeniaEngine,
     ENGINES, make_engine,
 )
 from .chunked import ChunkedLifeEngine
@@ -33,6 +33,7 @@ __all__ = [
     "ExcitableEngine",
     "ForestFireEngine",
     "TotalisticCA",
+    "LeniaEngine",
     "ChunkedLifeEngine",
     "ENGINES",
     "make_engine",

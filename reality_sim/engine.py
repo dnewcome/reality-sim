@@ -328,11 +328,113 @@ class TotalisticCA(Engine):
         self.generation += 1
 
 
+class LeniaEngine(Engine):
+    """Lenia — a *continuous* cellular automaton, a genuinely different kind of
+    universe from the discrete families.
+
+    The state is a real field A(x) in [0, 1], not a handful of discrete values.
+    Each step convolves the field with a smooth radial **kernel** K (concentric
+    rings), maps the result through a **growth function** G (a Gaussian bump
+    centered at mu, width sigma), and integrates: A += dt * G(K * A), clipped to
+    [0, 1]. Out of this fall the famous glider-like "creatures". The rule *is* the
+    (kernel, growth) pair, so randomizing it explores a continuous space of
+    automata — the first continuous primitive of the type-grammar.
+
+    For streaming/rendering the float field is quantized to uint8 (states=256 with
+    a gradient palette), so the rest of the stack is unchanged.
+    """
+
+    family = "lenia"
+
+    def __init__(self, lawset, shape, rng):
+        self._configure(lawset)
+        super().__init__(lawset, shape, rng)
+
+    def _configure(self, lawset: LawSet) -> None:
+        p = lawset.params
+        self.R = int(p.get("R", 13))
+        self.mu = float(p.get("mu", 0.15))
+        self.sigma = float(p.get("sigma", 0.015))
+        self.dt = float(p.get("dt", 0.1))
+        self.beta = [float(b) for b in p.get("beta", [1.0])]
+        self.kernel = self._make_kernel()
+
+    def _make_kernel(self) -> np.ndarray:
+        R = self.R
+        y, x = np.ogrid[-R:R + 1, -R:R + 1]
+        dist = np.sqrt(x * x + y * y) / R          # normalized radius, 0 at center
+        nb = len(self.beta)
+        r = dist * nb
+        shell = np.minimum(r.astype(int), nb - 1)
+        core = np.exp(-((r % 1.0 - 0.5) ** 2) / (2 * 0.15 ** 2))  # bump in each ring
+        beta = np.array(self.beta)
+        K = np.where(dist < 1.0, beta[shell] * core, 0.0)
+        total = K.sum()
+        return K / total if total > 0 else K
+
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self._configure(lawset)                    # keeps self.field; morphs dynamics
+
+    def _quantize(self) -> None:
+        self.grid = np.clip(self.field * 255.0, 0, 255).astype(np.uint8)
+
+    def seed(self) -> None:
+        recipe = self.lawset.seed
+        kind = recipe.get("kind", "random")
+        self.field = np.zeros((self.h, self.w), dtype=np.float64)
+        if kind == "random":
+            density = float(recipe.get("density", 0.5))
+            rad = max(4, int(min(self.h, self.w) * 0.22))
+            patch = self.rng.random((2 * rad, 2 * rad))
+            patch = ndimage.gaussian_filter(patch, sigma=2.0)   # smooth blob of life
+            lo, hi = patch.min(), patch.max()
+            patch = (patch - lo) / (hi - lo + 1e-9) * density
+            y0, x0 = self.h // 2 - rad, self.w // 2 - rad
+            self.field[y0:y0 + 2 * rad, x0:x0 + 2 * rad] = patch
+        elif kind != "clear":
+            raise ValueError(f"unknown seed kind: {kind!r}")
+        self.generation = 0
+        self._quantize()
+
+    def clear(self) -> None:
+        self.field[:] = 0.0
+        self.generation = 0
+        self._quantize()
+
+    def step(self) -> None:
+        u = ndimage.convolve(self.field, self.kernel, mode="wrap")
+        g = 2.0 * np.exp(-((u - self.mu) ** 2) / (2.0 * self.sigma ** 2)) - 1.0
+        self.field = np.clip(self.field + self.dt * g, 0.0, 1.0)
+        self.generation += 1
+        self._quantize()
+
+    def paint(self, r: int, c: int, value: int, radius: int = 0) -> None:
+        v = 1.0 if int(value) > 0 else 0.0
+        radius = max(radius, 1)
+        rr, cc = int(r), int(c)
+        yy, xx = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+        disk = xx * xx + yy * yy <= radius * radius
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                if disk[dy + radius, dx + radius] and 0 <= rr + dy < self.h and 0 <= cc + dx < self.w:
+                    self.field[rr + dy, cc + dx] = v
+        self._quantize()
+
+    def stats(self) -> dict:
+        return {
+            "generation": self.generation,
+            "live": int(np.count_nonzero(self.grid)),
+            "mass": round(float(self.field.sum()), 1),
+        }
+
+
 ENGINES: dict[str, type[Engine]] = {
     "life": LifeEngine,
     "excitable": ExcitableEngine,
     "forestfire": ForestFireEngine,
     "totalistic": TotalisticCA,
+    "lenia": LeniaEngine,
 }
 
 
