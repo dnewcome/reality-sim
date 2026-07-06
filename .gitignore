@@ -12,6 +12,9 @@ venv/
 # Committed sample figures live in docs/img/ instead.
 data/
 
+# Local tooling / session data — never publish
+.claude/
+
 # OS / editor
 .DS_Store
 *.swp
