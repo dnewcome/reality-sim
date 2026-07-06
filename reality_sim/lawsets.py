@@ -221,6 +221,31 @@ register(LawSet(
 ))
 
 
+# A named example of the generative totalistic family, so it's directly
+# selectable in the picker (not only reachable via the 🎲 dice). Its rule is one
+# curated random transition table; roll the dice for endless different ones.
+register(LawSet(
+    id="totalistic",
+    name="Totalistic",
+    description=(
+        "A 4-state totalistic CA — the whole rule is a transition table "
+        "T[state, neighbor_sum]. One example of the generative 'type' family; "
+        "roll 🎲 New random universe for endless different totalistic worlds."
+    ),
+    family="totalistic",
+    states=4,
+    params={"radius": 1, "table": [
+        [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 2, 0, 0, 0, 3, 2, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        [3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1],
+        [0, 0, 3, 2, 0, 0, 1, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]},
+    palette=["#07070d", "#5cc8ff", "#ffd76a", "#ff6b8a"],
+    seed={"kind": "random", "density": 0.5},
+    controls=[{"key": "density", "label": "seed density", "type": "float", "min": 0.05, "max": 1.0, "step": 0.05}],
+))
+
+
 # --- random universe generation ----------------------------------------------
 
 def _color(rng: np.random.Generator, hue=None, sat=(0.55, 0.95), val=(0.85, 1.0)) -> str:
