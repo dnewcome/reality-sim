@@ -212,7 +212,9 @@ register(LawSet(
     ),
     family="lenia",
     states=256,
-    params={"R": 13, "mu": 0.15, "sigma": 0.03, "dt": 0.1, "beta": [1.0]},
+    # A *moving* multi-ring set (found by search) rather than the classic single-ring
+    # params, which freeze into static spots from a random soup.
+    params={"R": 12, "mu": 0.265, "sigma": 0.048, "dt": 0.1, "beta": [1.0, 0.58, 0.9]},
     palette=gradient_palette(_LENIA_STOPS),
     seed={"kind": "random", "density": 0.6},
     controls=lenia_controls(),
@@ -308,11 +310,11 @@ def _random_gradient(rng: np.random.Generator, n: int = 256) -> list[str]:
 def random_lenia_lawset(rng: np.random.Generator) -> LawSet:
     """A random *continuous* universe (Lenia): random kernel rings + growth params."""
     R = int(rng.integers(10, 17))
-    nb = int(rng.integers(1, 4))                    # 1..3 concentric rings
+    nb = int(rng.choice([1, 2, 2, 3, 3]))           # bias to multi-ring (more dynamic)
     beta = [round(float(rng.uniform(0.3, 1.0)), 2) for _ in range(nb)]
     beta[0] = 1.0
-    mu = round(float(rng.uniform(0.12, 0.30)), 3)
-    sigma = round(float(rng.uniform(0.02, 0.05)), 3)
+    mu = round(float(rng.uniform(0.15, 0.30)), 3)   # the lively-but-not-dead band
+    sigma = round(float(rng.uniform(0.03, 0.05)), 3)
     tag = int(rng.integers(1000, 10000))
     return LawSet(
         id=f"rnd-{tag}",
@@ -328,16 +330,28 @@ def random_lenia_lawset(rng: np.random.Generator) -> LawSet:
 
 
 def _lenia_score(lawset: LawSet) -> float:
-    """Curation score for a continuous type: alive (mass in a sane band) and
-    structured (high spatial std → localized creatures, not uniform gray)."""
+    """Curation score for a continuous type: alive (mass in a sane band), spatially
+    **structured** (high std → localized shapes, not uniform gray) AND still
+    **moving** (nonzero frame-to-frame change after the transient). The motion term
+    is the fix for "Lenia always freezes into circular spots" — those static
+    Turing-pattern attractors score high on structure but ~0 on motion, so rewarding
+    motion steers rolls toward pulsing / drifting / rotating patterns instead."""
     from .engine import make_engine
-    eng = make_engine(lawset, (48, 48), np.random.default_rng(0))
-    for _ in range(80):
+    eng = make_engine(lawset, (56, 56), np.random.default_rng(0))
+    for _ in range(90):
+        eng.step()                       # settle well past the transient so we
+    prev = eng.field.copy()              # measure *sustained* motion, not a dying flurry
+    motion = 0.0
+    for _ in range(25):
         eng.step()
+        motion += float(np.abs(eng.field - prev).mean())
+        prev = eng.field.copy()
+    motion /= 25.0
     m = float(eng.field.mean())
-    if m < 0.01 or m > 0.55:
+    if m < 0.01 or m > 0.55:             # dead or blown out
         return 0.0
-    return float(eng.field.std())
+    move = min(max((motion - 0.0006) / 0.004, 0.0), 1.0)   # frozen -> 0, moving -> 1
+    return float(eng.field.std()) * move
 
 
 def random_lenia(rng: np.random.Generator, tries: int = 5) -> LawSet:

@@ -45,8 +45,10 @@ totalistic family's random tables produce genuinely new kinds of automata:*
 Types come in two flavors so far: **discrete** (totalistic transition tables) and
 **continuous** (`lenia` — real-valued cells evolved by a smooth kernel + growth
 function, quantized to 256 shades for display). Continuous types look nothing like
-the discrete ones — soft, organism-like membranes and cells. Tune growth center
-`μ` / width `σ` live to morph them.
+the discrete ones — soft, organism-like membranes and cells. The type generator
+curates for *sustained motion* (not just structure), so rolls tend to be moving,
+membraned "creatures" rather than the static spot-patterns Lenia falls into from a
+random soup by default. Tune growth center `μ` / width `σ` live to morph them.
 
 ![continuous Lenia types](docs/img/lenia.png)
 
