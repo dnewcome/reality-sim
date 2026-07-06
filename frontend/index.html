@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>reality-sim · universe viewer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◍</span>
+      <div>
+        <h1>reality&#8203;-sim</h1>
+        <p class="tagline">write a law of physics &middot; watch a universe happen</p>
+      </div>
+    </div>
+    <div class="conn" id="conn">connecting&hellip;</div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <canvas id="view" width="600" height="600"></canvas>
+      <div class="readout" id="readout">
+        <span><b id="stat-gen">0</b> generations</span>
+        <span><b id="stat-live">0</b> live</span>
+        <span><b id="stat-density">0%</b> density</span>
+        <span class="excited-stat" id="stat-excited-wrap"><b id="stat-excited">0</b> excited</span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="group">
+        <div class="group-label">universe</div>
+        <div class="lawset-list" id="lawset-list"></div>
+        <p class="lawset-desc" id="lawset-desc"></p>
+      </div>
+
+      <div class="group">
+        <div class="group-label">time</div>
+        <div class="transport">
+          <button id="btn-play" class="primary">&#10073;&#10073; Pause</button>
+          <button id="btn-step">&#8677; Step</button>
+        </div>
+        <div class="transport">
+          <button id="btn-reset">&#8635; Reseed</button>
+          <button id="btn-clear">&#9633; Clear</button>
+        </div>
+        <label class="slider">
+          <span>speed <b id="fps-val">20</b> fps</span>
+          <input type="range" id="fps" min="1" max="120" value="20" />
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="group-label">space</div>
+        <label class="slider">
+          <span>grid <b id="size-val">240</b>&sup2;</span>
+          <input type="range" id="size" min="60" max="512" step="20" value="240" />
+        </label>
+        <div class="hint">smaller = faster + chunkier cells</div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">brush &mdash; drag on the canvas</div>
+        <div class="transport">
+          <button id="btn-paint" class="toggle on">paint</button>
+          <button id="btn-erase" class="toggle">erase</button>
+        </div>
+        <label class="slider">
+          <span>radius <b id="brush-val">2</b></span>
+          <input type="range" id="brush" min="0" max="12" value="2" />
+        </label>
+        <div class="hint">inject structures / signals into a live universe</div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

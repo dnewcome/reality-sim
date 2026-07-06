@@ -1,0 +1,31 @@
+[project]
+name = "reality-sim"
+version = "0.1.0"
+description = "Simulate toy universes with pluggable laws of physics (cellular automata) and watch them evolve."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+# The rule-space sweep + ML pipeline (reality_sim.sweep / .analysis). The core
+# package and live viewer need none of this.
+ml = [
+    "scikit-learn>=1.3",
+    "pandas>=2.0",
+    "pyarrow>=12",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+reality-sim = "reality_sim.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["reality_sim"]

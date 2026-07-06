@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Sweep outputs — large and fully regenerable from `python -m reality_sim.sweep`.
+# Committed sample figures live in docs/img/ instead.
+data/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
