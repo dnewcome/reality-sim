@@ -154,6 +154,8 @@ class Session:
             if self.infinite:
                 self.cam_x, self.cam_y = self.engine.center_of_mass()
                 self.frame_dirty = True
+        elif c == "random":
+            self._random_universe()
 
     def _paint(self, cmd: dict) -> None:
         try:
@@ -174,6 +176,16 @@ class Session:
     def _set_boundary(self, mode) -> None:
         want = (mode == "infinite") and self.lawset.family == "life"
         self.infinite = want
+        self.cam_x = self.cam_y = 0
+        self.zoom = 1
+        self.engine = self._make_engine()
+        self.frame_dirty = self.status_dirty = True
+
+    def _random_universe(self) -> None:
+        """Invent and load a brand-new random universe (a random law of physics)."""
+        self.lawset = lawsets.random_lawset(self.rng)
+        self.lawset_id = self.lawset.id
+        self.infinite = False           # a random universe may be any family
         self.cam_x = self.cam_y = 0
         self.zoom = 1
         self.engine = self._make_engine()
@@ -267,6 +279,8 @@ class Session:
         await self.send_json({
             "type": "status",
             "lawset": self.lawset_id,
+            "name": ls.name,             # so one-off random universes can show a label
+            "description": ls.description,
             "playing": self.playing,
             "fps": self.fps,
             "w": self.w,
@@ -291,6 +305,9 @@ class Session:
         await self.send_status()
         if self.infinite:
             await self.send_view()
+        # The initial sends above already flushed current state; don't let the
+        # first loop tick re-send a duplicate frame/status.
+        self.frame_dirty = self.status_dirty = False
 
         while not self.closed and not self.ws.closed:
             # Apply everything queued since last tick.

@@ -117,6 +117,16 @@ button.disabled, button:disabled {
   margin-bottom: 10px;
 }
 
+.dice {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 11px;
+  font-size: 14px;
+  background: linear-gradient(180deg, #163a56 0%, #12324c 100%);
+  border-color: #2b6b96;
+}
+.dice:hover { border-color: var(--accent); }
+
 .lawset-list { display: flex; flex-direction: column; gap: 6px; }
 .lawset-btn {
   text-align: left;

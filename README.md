@@ -26,8 +26,13 @@ python -m reality_sim.server
 ```
 
 In the viewer: pick a universe, scrub speed, resize the grid, and **drag on the
-canvas to paint structures / inject signals** into a running universe.
-Keyboard: `space` play/pause, `s` step, `r` reseed.
+canvas to paint structures / inject signals** into a running universe. Hit
+**🎲 New random universe** (or `n`) to invent a fresh random law of physics —
+each roll is a random family (life rule / excitable medium / forest fire) with
+its own random palette.
+Keyboard: `space` play/pause, `s` step, `r` reseed, `n` new random universe.
+
+![four random universes](docs/img/random.png)
 
 ## Headless / batch
 

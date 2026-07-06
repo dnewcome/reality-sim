@@ -126,6 +126,7 @@ function onJson(msg) {
     currentId = msg.lawset;
     if (msg.palette) setPalette(msg.palette);   // live palette (may change with `states`)
     selectLawsetUI(currentId);
+    if (msg.description) el("lawset-desc").textContent = msg.description;  // incl. one-off random universes
     playing = msg.playing;
     el("btn-play").innerHTML = playing ? "&#10073;&#10073; Pause" : "&#9654; Play";
     el("fps").value = msg.fps;
@@ -330,6 +331,7 @@ el("btn-play").onclick = () => send({ cmd: playing ? "pause" : "play" });
 el("btn-step").onclick = () => send({ cmd: "step" });
 el("btn-reset").onclick = () => send({ cmd: "reset" });
 el("btn-clear").onclick = () => send({ cmd: "clear" });
+el("btn-random").onclick = () => send({ cmd: "random" });
 
 el("fps").oninput = (e) => {
   el("fps-val").textContent = e.target.value;
@@ -362,6 +364,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); send({ cmd: playing ? "pause" : "play" }); }
   else if (e.key === "s") send({ cmd: "step" });
   else if (e.key === "r") send({ cmd: "reset" });
+  else if (e.key === "n") send({ cmd: "random" });
   else if (infinite && e.key === "ArrowLeft") { e.preventDefault(); send({ cmd: "pan", dx: -PAN_KEY_STEP, dy: 0 }); }
   else if (infinite && e.key === "ArrowRight") { e.preventDefault(); send({ cmd: "pan", dx: PAN_KEY_STEP, dy: 0 }); }
   else if (infinite && e.key === "ArrowUp") { e.preventDefault(); send({ cmd: "pan", dx: 0, dy: -PAN_KEY_STEP }); }

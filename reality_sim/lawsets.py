@@ -9,6 +9,11 @@ firestorm). Adding a universe is adding an entry here.
 
 from __future__ import annotations
 
+import colorsys
+from dataclasses import replace
+
+import numpy as np
+
 from .lawset import LawSet
 
 LIBRARY: dict[str, LawSet] = {}
@@ -156,6 +161,66 @@ register(LawSet(
     seed={"kind": "random", "density": 0.4},
     controls=forestfire_controls(),
 ))
+
+
+# --- random universe generation ----------------------------------------------
+
+def _color(rng: np.random.Generator, hue=None, sat=(0.55, 0.95), val=(0.85, 1.0)) -> str:
+    h = float(rng.uniform(*hue)) if hue else float(rng.random())
+    s = float(rng.uniform(*sat))
+    v = float(rng.uniform(*val))
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+
+def random_lawset(rng: np.random.Generator) -> LawSet:
+    """Invent a fresh, random universe. Picks a random engine family and random
+    parameters within sensible ranges, plus a random palette so every roll looks
+    distinct. Parameters are chosen to (usually) produce something alive rather
+    than instantly dead — e.g. excitable always uses threshold=1 (see
+    [[greenberg-hastings-tuning]]) — but the law itself is genuinely random."""
+    from . import rulespace  # local import avoids any import-order cycle
+
+    tag = int(rng.integers(1000, 10000))
+    family = ("life", "excitable", "forestfire")[int(rng.integers(0, 3))]
+
+    if family == "life":
+        base = rulespace.bits_to_lawset(rulespace.random_bits(rng), lid=f"rnd-{tag}")
+        return replace(
+            base,
+            name=f"random · {base.name}",
+            description=f"a randomly invented universe — life-like {base.name}",
+            palette=["#0b0f1a", _color(rng)],
+            seed={"kind": "random", "density": round(float(rng.uniform(0.15, 0.4)), 3)},
+        )
+
+    if family == "excitable":
+        states = int(rng.integers(6, 25))
+        return LawSet(
+            id=f"rnd-{tag}",
+            name=f"random · Excitable ×{states}",
+            description=f"a randomly invented excitable medium ({states} refractory states)",
+            family="excitable",
+            states=states,
+            params={"threshold": 1},
+            palette=excitable_palette(states),
+            seed={"kind": "random", "density": round(float(rng.uniform(0.5, 1.0)), 2)},
+            controls=excitable_controls(),
+        )
+
+    p = round(float(rng.uniform(0.01, 0.12)), 4)
+    f = round(float(rng.uniform(0.0002, 0.004)), 5)
+    return LawSet(
+        id=f"rnd-{tag}",
+        name=f"random · Forest p={p} f={f}",
+        description=f"a randomly invented forest fire (growth p={p}, lightning f={f})",
+        family="forestfire",
+        states=3,
+        params={"p": p, "f": f},
+        palette=["#0d130d", _color(rng, hue=(0.25, 0.45)), _color(rng, hue=(0.0, 0.1))],
+        seed={"kind": "random", "density": round(float(rng.uniform(0.2, 0.5)), 2)},
+        controls=forestfire_controls(),
+    )
 
 
 def get(lawset_id: str) -> LawSet:
