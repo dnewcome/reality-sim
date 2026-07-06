@@ -101,3 +101,22 @@ comes straight out of the header, and `updateStats()` computes `live` and
 tick is the raw grid, so that channel stays pure binary with a fixed 12-byte
 header, and every JSON message is reserved for state that changes rarely
 enough to afford to serialize.
+
+## Infinite-mode extensions
+
+When a life-family universe is switched to the unbounded plane (see
+[infinite-grids.md](infinite-grids.md)), the binary frame format is unchanged —
+it just carries a **viewport** rather than the whole world. A few commands and one
+message are added:
+
+| direction | message | purpose |
+|---|---|---|
+| client → server | `set_boundary {mode}` | `"torus"` or `"infinite"` (infinite is ignored for non-life families) |
+| client → server | `pan {dx, dy}` | move the camera by `dx, dy` viewport pixels (× zoom → world cells) |
+| client → server | `zoom {zoom}` | set cells-per-pixel, clamped `1..32` |
+| client → server | `recenter` | snap the camera to the pattern's bounding-box center |
+| server → client | `view {cx, cy, zoom, generation, population, tiles}` | per-tick camera + world stats the fixed-size frame can't carry |
+
+`status` also gains `infinite` (bool), `can_infinite` (is this family life?), and
+`zoom`. Painting is unchanged on the wire — the server maps the viewport pixel to a
+world cell before applying it.

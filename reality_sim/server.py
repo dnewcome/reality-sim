@@ -40,6 +40,7 @@ import numpy as np
 from aiohttp import WSMsgType, web
 
 from . import lawsets
+from .chunked import ChunkedLifeEngine
 from .engine import make_engine
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -69,10 +70,23 @@ class Session:
         self.lawset_id = lawsets.DEFAULT_ID
         # A live, per-session copy of the law-set that `set_param` mutates.
         self.lawset = lawsets.get(self.lawset_id)
-        self.engine = make_engine(self.lawset, (self.h, self.w), self.rng)
+
+        # Boundary mode: fixed torus (default) or an unbounded "infinite" plane
+        # (life family only). In infinite mode we stream a movable camera window.
+        self.infinite = False
+        self.cam_x = 0
+        self.cam_y = 0
+        self.zoom = 1
+
+        self.engine = self._make_engine()
 
         self.frame_dirty = True   # a new frame needs sending this tick
         self.status_dirty = True  # structural state changed; resend status
+
+    def _make_engine(self):
+        if self.infinite:
+            return ChunkedLifeEngine(self.lawset, (self.h, self.w), self.rng)
+        return make_engine(self.lawset, (self.h, self.w), self.rng)
 
     # -- reader ----------------------------------------------------------
     async def read_commands(self) -> None:
@@ -105,8 +119,7 @@ class Session:
             self.engine.seed()
             self.frame_dirty = self.status_dirty = True
         elif c == "clear":
-            self.engine.grid[:] = 0
-            self.engine.generation = 0
+            self.engine.clear()
             self.frame_dirty = self.status_dirty = True
         elif c == "set_lawset":
             self._set_lawset(cmd.get("id"))
@@ -116,19 +129,55 @@ class Session:
         elif c == "set_size":
             self.w = _clamp(cmd.get("w", self.w), MIN_DIM, MAX_DIM)
             self.h = _clamp(cmd.get("h", self.h), MIN_DIM, MAX_DIM)
-            self.engine.resize((self.h, self.w))
+            if self.infinite:
+                # In infinite mode the "size" is the camera window, not the world.
+                self.engine.view_w, self.engine.view_h = self.w, self.h
+            else:
+                self.engine.resize((self.h, self.w))
             self.frame_dirty = self.status_dirty = True
         elif c == "paint":
-            try:
-                self.engine.paint(
-                    int(cmd["r"]), int(cmd["c"]),
-                    int(cmd.get("value", 1)), int(cmd.get("radius", 1)),
-                )
-                self.frame_dirty = True
-            except (KeyError, ValueError, TypeError):
-                pass
+            self._paint(cmd)
         elif c == "set_param":
             self._set_param(cmd.get("key"), cmd.get("value"))
+        elif c == "set_boundary":
+            self._set_boundary(cmd.get("mode"))
+        elif c == "pan":
+            if self.infinite:
+                self.cam_x += int(cmd.get("dx", 0)) * self.zoom
+                self.cam_y += int(cmd.get("dy", 0)) * self.zoom
+                self.frame_dirty = True
+        elif c == "zoom":
+            if self.infinite:
+                self.zoom = _clamp(cmd.get("zoom", 1), 1, 32)
+                self.frame_dirty = self.status_dirty = True
+        elif c == "recenter":
+            if self.infinite:
+                self.cam_x, self.cam_y = self.engine.center_of_mass()
+                self.frame_dirty = True
+
+    def _paint(self, cmd: dict) -> None:
+        try:
+            r, col = int(cmd["r"]), int(cmd["c"])
+            value = int(cmd.get("value", 1))
+            radius = int(cmd.get("radius", 1))
+        except (KeyError, ValueError, TypeError):
+            return
+        if self.infinite:
+            # Map a viewport pixel to a world cell (same origin viewport() uses).
+            wx0 = self.cam_x - (self.w * self.zoom) // 2
+            wy0 = self.cam_y - (self.h * self.zoom) // 2
+            self.engine.paint(wx0 + col * self.zoom, wy0 + r * self.zoom, value, radius * self.zoom)
+        else:
+            self.engine.paint(r, col, value, radius)
+        self.frame_dirty = True
+
+    def _set_boundary(self, mode) -> None:
+        want = (mode == "infinite") and self.lawset.family == "life"
+        self.infinite = want
+        self.cam_x = self.cam_y = 0
+        self.zoom = 1
+        self.engine = self._make_engine()
+        self.frame_dirty = self.status_dirty = True
 
     def _set_lawset(self, lid) -> None:
         if lid not in lawsets.LIBRARY:
@@ -136,7 +185,12 @@ class Session:
         self.lawset_id = lid
         # New physics, same canvas: reset to the library default and rebuild.
         self.lawset = lawsets.get(lid)
-        self.engine = make_engine(self.lawset, (self.h, self.w), self.rng)
+        if self.infinite and self.lawset.family != "life":
+            # Infinite mode is life-only; fall back to the torus for other families.
+            self.infinite = False
+            self.cam_x = self.cam_y = 0
+            self.zoom = 1
+        self.engine = self._make_engine()
         self.frame_dirty = self.status_dirty = True
 
     def _set_param(self, key, value) -> None:
@@ -180,13 +234,31 @@ class Session:
         if self.ws.closed:
             self.closed = True
             return
-        g = np.ascontiguousarray(self.engine.grid, dtype=np.uint8)
+        if self.infinite:
+            # Stream the camera window over the unbounded plane; the frame is the
+            # same w x h uint8 format, just a *view* rather than the whole world.
+            arr, _, _ = self.engine.viewport(self.cam_x, self.cam_y, self.w, self.h, self.zoom)
+            g = np.ascontiguousarray(arr, dtype=np.uint8)
+        else:
+            g = np.ascontiguousarray(self.engine.grid, dtype=np.uint8)
         h, w = g.shape
         header = struct.pack("<III", w, h, self.engine.generation)
         try:
             await self.ws.send_bytes(header + g.tobytes())
         except (ConnectionError, RuntimeError):
             self.closed = True
+
+    async def send_view(self) -> None:
+        """Per-tick JSON for infinite mode: camera + world stats the fixed-size
+        binary frame can't carry (total population, live tile count, zoom)."""
+        st = self.engine.stats()
+        await self.send_json({
+            "type": "view",
+            "cx": self.cam_x, "cy": self.cam_y, "zoom": self.zoom,
+            "generation": st.get("generation", 0),
+            "population": st.get("population", 0),
+            "tiles": st.get("tiles", 0),
+        })
 
     async def send_status(self) -> None:
         ls = self.lawset
@@ -203,6 +275,9 @@ class Session:
             "palette": ls.palette,       # live: regenerated when e.g. `states` changes
             "controls": ls.controls,     # the tunable-knob spec for this universe
             "params": params,            # current knob values (incl. seed density)
+            "infinite": self.infinite,   # is the world an unbounded plane right now
+            "can_infinite": ls.family == "life",  # is infinite even available here
+            "zoom": self.zoom,
         })
 
     # -- main loop -------------------------------------------------------
@@ -214,6 +289,8 @@ class Session:
         })
         await self.send_frame()
         await self.send_status()
+        if self.infinite:
+            await self.send_view()
 
         while not self.closed and not self.ws.closed:
             # Apply everything queued since last tick.
@@ -226,6 +303,10 @@ class Session:
 
             if self.frame_dirty:
                 await self.send_frame()
+                # Infinite mode: the camera/population change every tick, so the
+                # view message rides along with each frame.
+                if self.infinite:
+                    await self.send_view()
                 self.frame_dirty = False
             if self.status_dirty:
                 await self.send_status()

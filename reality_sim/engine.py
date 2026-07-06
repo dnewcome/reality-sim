@@ -69,6 +69,10 @@ class Engine:
         LawSet (which carries params, states, and palette)."""
         self.lawset = lawset
 
+    def clear(self) -> None:
+        self.grid[:] = 0
+        self.generation = 0
+
     # -- introspection ---------------------------------------------------
     def stats(self) -> dict:
         live = int(np.count_nonzero(self.grid))

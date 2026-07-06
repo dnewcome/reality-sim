@@ -63,6 +63,19 @@ forest between smoldering and firestorm with the growth `p` / lightning `f` dial
 
 ![forest fire under rising lightning rate](docs/img/forestfire.png)
 
+### Boundaries: torus or infinite
+
+Universes run on a fixed wrap-around **torus** by default. The **life family** also
+has an unbounded **infinite** mode (toggle it in the viewer) — a pattern can grow or
+fly away from the origin forever, stored as a sparse hash map of tiles so memory
+scales with the live *population*, not the area. A glider tracked for 4,000
+generations travels ~1,000 cells using **one tile**; a Gosper gun grows without
+bound. Pan/zoom around the endless plane in the viewer. (Space-filling universes
+like forest fire stay toroidal — see the honest caveat in
+[docs/infinite-grids.md](docs/infinite-grids.md).)
+
+![Gosper glider gun on the infinite plane](docs/img/infinite.png)
+
 ## Rule-space sweeps + ML
 
 The viewer runs one universe; the sweep pipeline runs *thousands* and puts a
@@ -92,6 +105,7 @@ HighLife in the Complex "edge of chaos" corner. Full write-up and figures in
 - [docs/architecture.md](docs/architecture.md) — how the package fits together
 - [docs/protocol.md](docs/protocol.md) — the websocket wire protocol
 - [docs/adding-a-universe.md](docs/adding-a-universe.md) — add a law-set or a whole engine family
+- [docs/infinite-grids.md](docs/infinite-grids.md) — the unbounded-plane (tiled) mode for the life family
 - [docs/metrics.md](docs/metrics.md) — the dynamical features a sweep measures
 - [docs/sweeps.md](docs/sweeps.md) — the rule-space sweep + ML pipeline
 
@@ -116,6 +130,9 @@ writer, so there are no interleaved-send races.
 
 - **✅ ML-driven rule search** — sweep rule-space, learn the law→behavior map.
   Done for the life-like family; see [docs/sweeps.md](docs/sweeps.md).
+- **✅ infinite grids** — unbounded tiled plane for the life family; see
+  [docs/infinite-grids.md](docs/infinite-grids.md). Next: extend the tiling to the
+  excitable family, and 3D.
 - **active search** — use the learned surrogate + Bayesian optimization to
   *propose* laws in the rare Complex corner instead of sampling uniformly.
 - **complexity / replication frontier** — measure how fast self-replicating or

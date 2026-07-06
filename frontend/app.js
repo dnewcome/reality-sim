@@ -15,8 +15,15 @@ let gridW = 0, gridH = 0, generation = 0;
 let latestGrid = null;        // Uint8Array of last frame
 let playing = true;
 
-let brushValue = 1;           // paint vs erase
 let brushRadius = 2;
+let tool = "paint";           // "paint" | "erase" | "pan"
+
+// infinite-grid mode
+let infinite = false;
+let canInfinite = false;
+let zoom = 1;
+let camX = 0, camY = 0;
+const PAN_KEY_STEP = 24;      // pixels moved per arrow-key press
 
 // ---- canvas ----------------------------------------------------------------
 const view = document.getElementById("view");
@@ -125,14 +132,44 @@ function onJson(msg) {
     el("fps-val").textContent = msg.fps;
     el("size").value = msg.w;
     el("size-val").textContent = msg.w;
+    infinite = !!msg.infinite;
+    canInfinite = !!msg.can_infinite;
+    if (msg.zoom) zoom = msg.zoom;
     // (Re)build the parameter panel only when the universe changes, so tuning a
     // knob (which echoes a status) never yanks a slider out from under the mouse.
     if (msg.controls && msg.lawset !== builtForId) {
       buildControls(msg.controls, msg.params || {});
       builtForId = msg.lawset;
     }
+    updateBoundaryUI();
     render();
+  } else if (msg.type === "view") {
+    // per-tick infinite-mode readout (camera + world stats)
+    camX = msg.cx; camY = msg.cy; zoom = msg.zoom;
+    generation = msg.generation;
+    el("stat-gen").textContent = generation.toLocaleString();
+    el("stat-pop").textContent = msg.population.toLocaleString();
+    el("stat-tiles").textContent = msg.tiles.toLocaleString();
+    el("stat-cam").textContent = `${msg.cx},${msg.cy}`;
+    el("stat-zoom").textContent = msg.zoom;
   }
+}
+
+function updateBoundaryUI() {
+  el("btn-infinite").classList.toggle("disabled", !canInfinite);
+  el("btn-torus").classList.toggle("on", !infinite);
+  el("btn-infinite").classList.toggle("on", infinite);
+  el("infinite-controls").style.display = infinite ? "block" : "none";
+  el("size-hint").textContent = infinite
+    ? "the window onto an endless plane"
+    : "smaller = faster + chunkier cells";
+  // swap which stats are visible: torus shows live/density, infinite shows pop/tiles/cam
+  for (const id of ["stat-live-wrap", "stat-density-wrap"])
+    el(id).style.display = infinite ? "none" : "inline";
+  for (const id of ["stat-pop-wrap", "stat-tiles-wrap", "stat-cam-wrap"])
+    el(id).classList.toggle("show", infinite);
+  el("btn-pan").style.display = infinite ? "" : "none";
+  if (!infinite && tool === "pan") setTool("paint");
 }
 
 function send(obj) {
@@ -229,33 +266,64 @@ function buildSlider(c, current) {
   return wrap;
 }
 
-// ---- painting --------------------------------------------------------------
-let painting = false;
+// ---- pointer: paint / erase / pan -----------------------------------------
+let dragging = false;
+let lastPx = null;
 
-function cellFromEvent(e) {
+function pointerPx(e) {
   const rect = view.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
-  const c = Math.floor(x * gridW);
-  const r = Math.floor(y * gridH);
-  return { r, c };
+  return {
+    x: (e.clientX - rect.left) / rect.width * gridW,
+    y: (e.clientY - rect.top) / rect.height * gridH,
+  };
 }
 
 function paintAt(e) {
   if (!gridW) return;
-  const { r, c } = cellFromEvent(e);
+  const p = pointerPx(e);
+  const r = Math.floor(p.y), c = Math.floor(p.x);
   if (r < 0 || c < 0 || r >= gridH || c >= gridW) return;
-  send({ cmd: "paint", r, c, value: brushValue, radius: brushRadius });
+  send({ cmd: "paint", r, c, value: tool === "erase" ? 0 : 1, radius: brushRadius });
+}
+
+function panDrag(e) {
+  const p = pointerPx(e);
+  if (lastPx) {
+    const dx = Math.round(p.x - lastPx.x), dy = Math.round(p.y - lastPx.y);
+    if (dx || dy) send({ cmd: "pan", dx: -dx, dy: -dy });   // grab-and-pull-the-world feel
+  }
+  lastPx = p;
 }
 
 view.addEventListener("pointerdown", (e) => {
-  painting = true;
+  dragging = true;
   view.setPointerCapture(e.pointerId);
-  paintAt(e);
+  lastPx = pointerPx(e);
+  if (tool !== "pan") paintAt(e);
 });
-view.addEventListener("pointermove", (e) => { if (painting) paintAt(e); });
-view.addEventListener("pointerup", () => { painting = false; });
-view.addEventListener("pointercancel", () => { painting = false; });
+view.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  if (tool === "pan") panDrag(e); else paintAt(e);
+});
+view.addEventListener("pointerup", () => { dragging = false; lastPx = null; });
+view.addEventListener("pointercancel", () => { dragging = false; lastPx = null; });
+
+view.addEventListener("wheel", (e) => {          // scroll to zoom (infinite only)
+  if (!infinite) return;
+  e.preventDefault();
+  setZoom(e.deltaY < 0 ? zoom / 2 : zoom * 2);
+}, { passive: false });
+
+function setZoom(z) {
+  send({ cmd: "zoom", zoom: Math.max(1, Math.min(32, Math.round(z))) });
+}
+
+function setTool(t) {
+  tool = t;
+  for (const [id, name] of [["btn-paint", "paint"], ["btn-erase", "erase"], ["btn-pan", "pan"]])
+    el(id).classList.toggle("on", name === t);
+  view.style.cursor = t === "pan" ? "grab" : "crosshair";
+}
 
 // ---- controls --------------------------------------------------------------
 el("btn-play").onclick = () => send({ cmd: playing ? "pause" : "play" });
@@ -277,16 +345,16 @@ el("brush").oninput = (e) => {
   brushRadius = +e.target.value;
   el("brush-val").textContent = e.target.value;
 };
-el("btn-paint").onclick = () => {
-  brushValue = 1;
-  el("btn-paint").classList.add("on");
-  el("btn-erase").classList.remove("on");
-};
-el("btn-erase").onclick = () => {
-  brushValue = 0;
-  el("btn-erase").classList.add("on");
-  el("btn-paint").classList.remove("on");
-};
+el("btn-paint").onclick = () => setTool("paint");
+el("btn-erase").onclick = () => setTool("erase");
+el("btn-pan").onclick = () => setTool("pan");
+
+// boundary + infinite-grid controls
+el("btn-torus").onclick = () => send({ cmd: "set_boundary", mode: "torus" });
+el("btn-infinite").onclick = () => { if (canInfinite) send({ cmd: "set_boundary", mode: "infinite" }); };
+el("btn-zoomin").onclick = () => setZoom(zoom / 2);
+el("btn-zoomout").onclick = () => setZoom(zoom * 2);
+el("btn-recenter").onclick = () => send({ cmd: "recenter" });
 
 // keyboard: space = play/pause, s = step
 window.addEventListener("keydown", (e) => {
@@ -294,6 +362,10 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); send({ cmd: playing ? "pause" : "play" }); }
   else if (e.key === "s") send({ cmd: "step" });
   else if (e.key === "r") send({ cmd: "reset" });
+  else if (infinite && e.key === "ArrowLeft") { e.preventDefault(); send({ cmd: "pan", dx: -PAN_KEY_STEP, dy: 0 }); }
+  else if (infinite && e.key === "ArrowRight") { e.preventDefault(); send({ cmd: "pan", dx: PAN_KEY_STEP, dy: 0 }); }
+  else if (infinite && e.key === "ArrowUp") { e.preventDefault(); send({ cmd: "pan", dx: 0, dy: -PAN_KEY_STEP }); }
+  else if (infinite && e.key === "ArrowDown") { e.preventDefault(); send({ cmd: "pan", dx: 0, dy: PAN_KEY_STEP }); }
 });
 
 // ---- socket lifecycle ------------------------------------------------------

@@ -23,9 +23,12 @@
       <canvas id="view" width="600" height="600"></canvas>
       <div class="readout" id="readout">
         <span><b id="stat-gen">0</b> generations</span>
-        <span><b id="stat-live">0</b> live</span>
-        <span><b id="stat-density">0%</b> density</span>
+        <span id="stat-live-wrap"><b id="stat-live">0</b> live</span>
+        <span id="stat-density-wrap"><b id="stat-density">0%</b> density</span>
         <span class="excited-stat" id="stat-excited-wrap"><b id="stat-excited">0</b> excited</span>
+        <span class="infinite-stat" id="stat-pop-wrap"><b id="stat-pop">0</b> population</span>
+        <span class="infinite-stat" id="stat-tiles-wrap"><b id="stat-tiles">0</b> tiles</span>
+        <span class="infinite-stat" id="stat-cam-wrap">cam <b id="stat-cam">0,0</b> &middot; &times;<b id="stat-zoom">1</b></span>
       </div>
     </section>
 
@@ -60,10 +63,24 @@
       <div class="group">
         <div class="group-label">space</div>
         <label class="slider">
-          <span>grid <b id="size-val">240</b>&sup2;</span>
+          <span id="size-label">grid <b id="size-val">240</b>&sup2;</span>
           <input type="range" id="size" min="60" max="512" step="20" value="240" />
         </label>
-        <div class="hint">smaller = faster + chunkier cells</div>
+        <div class="hint" id="size-hint">smaller = faster + chunkier cells</div>
+
+        <div class="control-label" style="margin-top:12px"><span>boundary</span></div>
+        <div class="transport">
+          <button id="btn-torus" class="toggle on">torus</button>
+          <button id="btn-infinite" class="toggle">&#8734; infinite</button>
+        </div>
+        <div id="infinite-controls" style="display:none">
+          <div class="transport" style="margin-top:8px">
+            <button id="btn-zoomin">+ in</button>
+            <button id="btn-recenter">&#9678; center</button>
+            <button id="btn-zoomout">&minus; out</button>
+          </div>
+          <div class="hint">pan: drag with the <b>pan</b> tool &middot; arrow keys &middot; scroll to zoom</div>
+        </div>
       </div>
 
       <div class="group">
@@ -71,6 +88,7 @@
         <div class="transport">
           <button id="btn-paint" class="toggle on">paint</button>
           <button id="btn-erase" class="toggle">erase</button>
+          <button id="btn-pan" class="toggle">pan</button>
         </div>
         <label class="slider">
           <span>radius <b id="brush-val">2</b></span>
