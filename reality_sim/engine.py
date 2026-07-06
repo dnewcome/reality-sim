@@ -62,6 +62,13 @@ class Engine:
     def step(self) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def reconfigure(self, lawset: LawSet) -> None:
+        """Adopt new rule parameters *in place*, keeping the current grid — so a
+        running pattern can react to a changed law instead of being reseeded.
+        Subclasses recompute their derived rule state; the base just swaps the
+        LawSet (which carries params, states, and palette)."""
+        self.lawset = lawset
+
     # -- introspection ---------------------------------------------------
     def stats(self) -> dict:
         live = int(np.count_nonzero(self.grid))
@@ -104,13 +111,20 @@ class LifeEngine(Engine):
     family = "life"
 
     def __init__(self, lawset, shape, rng):
+        self._build_luts(lawset)
+        super().__init__(lawset, shape, rng)
+
+    def _build_luts(self, lawset: LawSet) -> None:
         birth = set(int(x) for x in lawset.params.get("birth", [3]))
         survival = set(int(x) for x in lawset.params.get("survival", [2, 3]))
         # Lookup tables indexed by neighbor count 0..8 — turns the rule into a
         # single vectorized fancy-index instead of per-cell membership tests.
         self._birth_lut = np.array([n in birth for n in range(9)], dtype=bool)
         self._survival_lut = np.array([n in survival for n in range(9)], dtype=bool)
-        super().__init__(lawset, shape, rng)
+
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self._build_luts(lawset)
 
     def step(self) -> None:
         alive = self.grid.astype(bool)
@@ -142,14 +156,27 @@ class ExcitableEngine(Engine):
         self.threshold = int(lawset.params.get("threshold", 2))
         super().__init__(lawset, shape, rng)
 
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self.threshold = int(lawset.params.get("threshold", self.threshold))
+        new_n = int(lawset.states)
+        if new_n != self.n:
+            # Keep the current wave pattern, but fold any now-out-of-range states
+            # back to resting so nothing points past the (new) palette.
+            self.grid = np.where(self.grid >= new_n, 0, self.grid).astype(np.uint8)
+            self.n = new_n
+
     def seed(self) -> None:
         recipe = self.lawset.seed
         kind = recipe.get("kind", "random")
         if kind == "clear":
             self.grid[:] = 0
         elif kind == "random":
-            # Uniform random over all states seeds spiral waves quickly.
-            self.grid = self.rng.integers(0, self.n, size=(self.h, self.w), dtype=np.uint8)
+            # `density` = fraction of non-resting cells; the rest start at rest.
+            density = float(recipe.get("density", 1.0))
+            states = self.rng.integers(0, self.n, size=(self.h, self.w), dtype=np.uint8)
+            mask = self.rng.random((self.h, self.w)) < density
+            self.grid = np.where(mask, states, 0).astype(np.uint8)
         else:
             raise ValueError(f"unknown seed kind: {kind!r}")
         self.generation = 0
@@ -178,9 +205,73 @@ class ExcitableEngine(Engine):
         return base
 
 
+class ForestFireEngine(Engine):
+    """Drossel-Schwabl forest-fire model — our first *stochastic* universe.
+
+    Three states: 0 empty, 1 tree, 2 burning. Synchronous update each step:
+      * a burning cell -> empty;
+      * a tree -> burning if any Moore neighbor is burning, or spontaneously with
+        probability ``f`` (lightning);
+      * an empty cell -> tree with probability ``p`` (growth).
+
+    With slow growth and rare lightning (``f`` << ``p``) it self-organizes to a
+    critical state with power-law-distributed fire sizes — a universe that finds
+    the edge of chaos on its own, no tuning required. It is also the excitable
+    medium's stochastic cousin (tree = resting, fire = excited, empty = refractory),
+    and its fire fronts advance at a definite, watchable speed.
+    """
+
+    family = "forestfire"
+    EMPTY, TREE, FIRE = 0, 1, 2
+
+    def __init__(self, lawset, shape, rng):
+        self.p = float(lawset.params.get("p", 0.03))
+        self.f = float(lawset.params.get("f", 0.0006))
+        super().__init__(lawset, shape, rng)
+
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self.p = float(lawset.params.get("p", self.p))
+        self.f = float(lawset.params.get("f", self.f))
+
+    def seed(self) -> None:
+        recipe = self.lawset.seed
+        kind = recipe.get("kind", "random")
+        if kind == "clear":
+            self.grid[:] = self.EMPTY
+        elif kind == "random":
+            density = float(recipe.get("density", 0.4))
+            trees = self.rng.random((self.h, self.w)) < density
+            self.grid = np.where(trees, self.TREE, self.EMPTY).astype(np.uint8)
+        else:
+            raise ValueError(f"unknown seed kind: {kind!r}")
+        self.generation = 0
+
+    def step(self) -> None:
+        g = self.grid
+        fire = g == self.FIRE
+        tree = g == self.TREE
+        empty = g == self.EMPTY
+        burning_neighbors = ndimage.convolve(fire.astype(np.uint8), MOORE, mode="wrap")
+        r = self.rng.random(g.shape)
+
+        new = np.where(fire, self.EMPTY, g).astype(np.uint8)
+        new[tree & ((burning_neighbors > 0) | (r < self.f))] = self.FIRE
+        new[empty & (r < self.p)] = self.TREE
+        self.grid = new
+        self.generation += 1
+
+    def stats(self) -> dict:
+        base = super().stats()  # 'live' = non-empty cells (trees + fire)
+        base["trees"] = int(np.count_nonzero(self.grid == self.TREE))
+        base["fire"] = int(np.count_nonzero(self.grid == self.FIRE))
+        return base
+
+
 ENGINES: dict[str, type[Engine]] = {
     "life": LifeEngine,
     "excitable": ExcitableEngine,
+    "forestfire": ForestFireEngine,
 }
 
 

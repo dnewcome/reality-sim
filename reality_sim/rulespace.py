@@ -49,6 +49,7 @@ def rule_name(birth, survival) -> str:
 
 
 def bits_to_lawset(bits, lid: str = "rule", name: str | None = None) -> LawSet:
+    from .lawsets import life_controls  # local import avoids any import-order cycle
     birth, survival = bits_to_bs(bits)
     nm = name or rule_name(birth, survival)
     return LawSet(
@@ -60,6 +61,7 @@ def bits_to_lawset(bits, lid: str = "rule", name: str | None = None) -> LawSet:
         params={"birth": birth, "survival": survival},
         palette=list(_SWEEP_PALETTE),
         seed=dict(_SWEEP_SEED),
+        controls=life_controls(),
     )
 
 

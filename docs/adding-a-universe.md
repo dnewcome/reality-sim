@@ -25,11 +25,12 @@ The fields:
 | `id` | short stable identifier — used in URLs / the `set_lawset` command |
 | `name` | human label shown in the picker |
 | `description` | what this universe *is* / what emerges — shown under the picker |
-| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"` or `"excitable"` today) |
+| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, or `"forestfire"` today) |
 | `states` | number of distinct cell states, `0..states-1` |
 | `params` | family-specific rule parameters (see below) |
 | `palette` | one `"#rrggbb"` string per state, index == state value |
 | `seed` | initial-condition recipe: `{"kind": "random", "density": ...}` or `{"kind": "clear"}` |
+| `controls` | UI spec for the live-tunable knobs — the widgets the viewer renders and whose changes come back as `set_param` (see "Live-tunable controls" below) |
 
 For the **`"life"`** family, `params` is `{"birth": [...], "survival": [...]}`
 — lists of Moore-neighbor counts (`0..8`). `LifeEngine` turns each list into a
@@ -45,6 +46,32 @@ of currently-excited (state `1`) Moore neighbors a resting (state `0`) cell
 needs to fire. `states` sets how many refractory steps a cell spends
 recovering (state `k` always advances to `k+1`, wrapping `states-1` back to
 `0`). See the gotcha below before picking a threshold.
+
+For the **`"forestfire"`** family (stochastic, `states=3`: empty/tree/fire),
+`params` is `{"p": ..., "f": ...}` — the per-cell probabilities that an empty
+cell grows a tree (`p`) and that a tree spontaneously ignites by lightning
+(`f`). A tree also ignites if any Moore neighbor is burning; fire always dies to
+empty next step. With `f` << `p` the model self-organizes to criticality.
+
+### Live-tunable controls
+
+The `controls` field is what makes a universe's knobs appear in the viewer. Each
+entry is a dict the frontend renders as a widget, and each change is sent back as
+a `{"cmd": "set_param", "key": ..., "value": ...}` message. Three types:
+
+| type | widget | value | used by |
+|---|---|---|---|
+| `set9` | nine toggle chips for a subset of `{0..8}` | a list of ints | life `birth` / `survival` |
+| `int` | integer slider (`min`/`max`/`step`) | an int | excitable `threshold` / `states` |
+| `float` | float slider (`min`/`max`/`step`) | a float | forestfire `p` / `f`, seed `density` |
+
+The special key `"density"` tunes the `seed` recipe (it takes effect on the next
+reseed, not immediately). Build the list with the helpers in `lawsets.py`
+(`life_controls()`, `excitable_controls()`, `forestfire_controls()`) or hand-write
+dicts. When a knob changes, the server mutates a per-session copy of the LawSet
+(`dataclasses.replace`) and calls **`engine.reconfigure(new_lawset)`** — which
+updates the rule *in place, keeping the current grid*, so a running pattern
+reacts to the changed law instead of being reset.
 
 ### Worked example: Seeds (a life-like rule)
 
@@ -128,6 +155,12 @@ just a plain module-level dict you can add to):
 7. **Tag matching `LawSet`s** with `family="myfamily"` in `lawsets.py`
    (or wherever you register universes) — `make_engine()` picks up the new
    family automatically, with no other code path to touch.
+8. **(Optional) Support live tuning** — override `reconfigure(self, lawset)`
+   (call `super().reconfigure(lawset)` first) to adopt changed `params` in place
+   without reseeding, keeping `self.grid`; and give your `LawSet`s a `controls`
+   list so the knobs appear in the viewer. Skip this and the universe still runs
+   fine — it just won't be live-editable. `ForestFireEngine` is the smallest
+   worked example of a stochastic family with both.
 
 That's the entire seam: `LawSet.family` plus the `ENGINES` dict is what makes
 the system pluggable, and it's intentionally the *only* place new physics has

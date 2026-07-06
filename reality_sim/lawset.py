@@ -36,6 +36,12 @@ class LawSet:
               part of its spec.
     seed : default initial-condition recipe, e.g. {"kind": "random",
            "density": 0.22} or {"kind": "clear"}.
+    controls : UI spec for the *live-tunable* knobs of this universe. Each entry
+               is a dict {key, label, type, ...} the viewer turns into a widget,
+               and whose changes are sent back as `set_param` commands. Types:
+               "set9" (a subset of {0..8} as toggle chips, e.g. life's B/S),
+               "int"/"float" (a slider with min/max/step). The special key
+               "density" tunes the seed recipe (applied on the next reseed).
     """
 
     id: str
@@ -46,6 +52,7 @@ class LawSet:
     params: dict[str, Any] = field(default_factory=dict)
     palette: list[str] = field(default_factory=list)
     seed: dict[str, Any] = field(default_factory=lambda: {"kind": "random", "density": 0.25})
+    controls: list[dict] = field(default_factory=list)
 
     def to_public(self) -> dict:
         """JSON-serializable view sent to the browser."""

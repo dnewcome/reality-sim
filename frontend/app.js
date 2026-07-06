@@ -6,8 +6,9 @@ let ws;
 let reconnectTimer = null;
 
 // ---- state -----------------------------------------------------------------
-const catalog = {};           // id -> lawset meta (incl. palette)
+const catalog = {};           // id -> lawset meta (name/description for the picker)
 let currentId = null;
+let builtForId = null;        // which universe the controls panel was built for
 let palette32 = new Uint32Array([0, 0xffffffff]); // state -> packed RGBA
 let statesCount = 2;
 let gridW = 0, gridH = 0, generation = 0;
@@ -116,7 +117,7 @@ function onJson(msg) {
     selectLawsetUI(msg.current);
   } else if (msg.type === "status") {
     currentId = msg.lawset;
-    if (catalog[currentId]) setPalette(catalog[currentId].palette);
+    if (msg.palette) setPalette(msg.palette);   // live palette (may change with `states`)
     selectLawsetUI(currentId);
     playing = msg.playing;
     el("btn-play").innerHTML = playing ? "&#10073;&#10073; Pause" : "&#9654; Play";
@@ -124,7 +125,12 @@ function onJson(msg) {
     el("fps-val").textContent = msg.fps;
     el("size").value = msg.w;
     el("size-val").textContent = msg.w;
-    // repaint immediately with the (possibly new) palette
+    // (Re)build the parameter panel only when the universe changes, so tuning a
+    // knob (which echoes a status) never yanks a slider out from under the mouse.
+    if (msg.controls && msg.lawset !== builtForId) {
+      buildControls(msg.controls, msg.params || {});
+      builtForId = msg.lawset;
+    }
     render();
   }
 }
@@ -152,6 +158,75 @@ function selectLawsetUI(id) {
     b.classList.toggle("active", b.dataset.id === id);
   }
   if (catalog[id]) el("lawset-desc").textContent = catalog[id].description;
+}
+
+// ---- live parameter controls ----------------------------------------------
+function fmtNum(v, step) {
+  if (Number.isInteger(step) && Number.isInteger(v)) return String(v);
+  const s = String(step), dot = s.indexOf(".");
+  const dec = dot >= 0 ? s.length - dot - 1 : 2;
+  return Number(v).toFixed(Math.min(dec, 5));
+}
+
+function buildControls(controls, params) {
+  const box = el("controls");
+  box.innerHTML = "";
+  for (const c of controls) {
+    box.appendChild(c.type === "set9"
+      ? buildSet9(c, params[c.key] || [])
+      : buildSlider(c, params[c.key]));
+  }
+}
+
+// A subset of {0..8} as nine toggle chips — e.g. life's birth/survival sets.
+function buildSet9(c, current) {
+  const wrap = document.createElement("div");
+  wrap.className = "control";
+  const label = document.createElement("div");
+  label.className = "control-label";
+  label.innerHTML = `<span>${c.label}</span>`;
+  wrap.appendChild(label);
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  const set = new Set((current || []).map(Number));
+  for (let i = 0; i <= 8; i++) {
+    const chip = document.createElement("button");
+    chip.className = "chip" + (set.has(i) ? " on" : "");
+    chip.textContent = i;
+    chip.onclick = () => {
+      if (set.has(i)) set.delete(i); else set.add(i);
+      chip.classList.toggle("on");
+      send({ cmd: "set_param", key: c.key, value: [...set].sort((a, b) => a - b) });
+    };
+    chips.appendChild(chip);
+  }
+  wrap.appendChild(chips);
+  return wrap;
+}
+
+function buildSlider(c, current) {
+  const wrap = document.createElement("div");
+  wrap.className = "control";
+  const val = current != null ? current : (c.min != null ? c.min : 0);
+
+  const label = document.createElement("div");
+  label.className = "control-label";
+  const span = document.createElement("span"); span.textContent = c.label;
+  const valEl = document.createElement("b"); valEl.textContent = fmtNum(val, c.step);
+  label.appendChild(span); label.appendChild(valEl);
+  wrap.appendChild(label);
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = c.min; input.max = c.max; input.step = c.step; input.value = val;
+  input.oninput = () => {
+    const v = c.type === "int" ? parseInt(input.value, 10) : parseFloat(input.value);
+    valEl.textContent = fmtNum(v, c.step);
+    send({ cmd: "set_param", key: c.key, value: v });
+  };
+  wrap.appendChild(input);
+  return wrap;
 }
 
 // ---- painting --------------------------------------------------------------

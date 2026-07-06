@@ -54,6 +54,14 @@ The engine is fully vectorized (neighbor counts via `scipy.ndimage.convolve`,
 | `highlife` | life | B36/S23 — has a genuine self-replicator |
 | `daynight` | life | B3678/S34678 — matter/vacuum-symmetric domains |
 | `excitable` | excitable | Greenberg-Hastings, 16 states — spiral waves with a definite signal speed |
+| `forestfire` | forestfire | Drossel-Schwabl — stochastic; self-organizes to criticality |
+
+Every universe exposes **live-tunable knobs** in the viewer — edit the law while
+it runs and the pattern reacts in place (the grid isn't reset): toggle Conway's
+birth/survival bits, stretch the excitable medium's refractory tail, or tip the
+forest between smoldering and firestorm with the growth `p` / lightning `f` dials.
+
+![forest fire under rising lightning rate](docs/img/forestfire.png)
 
 ## Rule-space sweeps + ML
 

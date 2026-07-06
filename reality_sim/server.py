@@ -33,6 +33,7 @@ import argparse
 import asyncio
 import json
 import struct
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -66,7 +67,9 @@ class Session:
         self.fps = 20
         self.playing = True
         self.lawset_id = lawsets.DEFAULT_ID
-        self.engine = make_engine(lawsets.get(self.lawset_id), (self.h, self.w), self.rng)
+        # A live, per-session copy of the law-set that `set_param` mutates.
+        self.lawset = lawsets.get(self.lawset_id)
+        self.engine = make_engine(self.lawset, (self.h, self.w), self.rng)
 
         self.frame_dirty = True   # a new frame needs sending this tick
         self.status_dirty = True  # structural state changed; resend status
@@ -124,13 +127,43 @@ class Session:
                 self.frame_dirty = True
             except (KeyError, ValueError, TypeError):
                 pass
+        elif c == "set_param":
+            self._set_param(cmd.get("key"), cmd.get("value"))
 
     def _set_lawset(self, lid) -> None:
         if lid not in lawsets.LIBRARY:
             return
         self.lawset_id = lid
-        # New physics, same canvas: rebuild the engine at the current size.
-        self.engine = make_engine(lawsets.get(lid), (self.h, self.w), self.rng)
+        # New physics, same canvas: reset to the library default and rebuild.
+        self.lawset = lawsets.get(lid)
+        self.engine = make_engine(self.lawset, (self.h, self.w), self.rng)
+        self.frame_dirty = self.status_dirty = True
+
+    def _set_param(self, key, value) -> None:
+        """Tune one knob of the *current* universe live, keeping the grid. Mutates
+        the session's LawSet (via dataclasses.replace) and reconfigures the engine."""
+        ls = self.lawset
+        try:
+            if key in ("birth", "survival"):
+                vals = sorted({int(x) for x in value if 0 <= int(x) <= 8})
+                self.lawset = replace(ls, params={**ls.params, key: vals})
+            elif key == "threshold":
+                self.lawset = replace(ls, params={**ls.params, "threshold": _clamp(value, 1, 8)})
+            elif key == "states":
+                n = _clamp(value, 2, 64)
+                self.lawset = replace(ls, states=n, palette=lawsets.excitable_palette(n))
+            elif key in ("p", "f"):
+                v = max(0.0, min(1.0, float(value)))
+                self.lawset = replace(ls, params={**ls.params, key: v})
+            elif key == "density":
+                d = max(0.0, min(1.0, float(value)))
+                self.lawset = replace(ls, seed={**ls.seed, "density": d})
+            else:
+                return
+        except (ValueError, TypeError):
+            return
+        # reconfigure keeps the grid; density only takes effect on the next reseed.
+        self.engine.reconfigure(self.lawset)
         self.frame_dirty = self.status_dirty = True
 
     # -- outbound --------------------------------------------------------
@@ -156,6 +189,9 @@ class Session:
             self.closed = True
 
     async def send_status(self) -> None:
+        ls = self.lawset
+        params = dict(ls.params)
+        params["density"] = ls.seed.get("density")
         await self.send_json({
             "type": "status",
             "lawset": self.lawset_id,
@@ -163,7 +199,10 @@ class Session:
             "fps": self.fps,
             "w": self.w,
             "h": self.h,
-            "states": self.engine.lawset.states,
+            "states": ls.states,
+            "palette": ls.palette,       # live: regenerated when e.g. `states` changes
+            "controls": ls.controls,     # the tunable-knob spec for this universe
+            "params": params,            # current knob values (incl. seed density)
         })
 
     # -- main loop -------------------------------------------------------

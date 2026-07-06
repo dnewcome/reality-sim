@@ -19,7 +19,7 @@ Or launch the live web viewer::
 from __future__ import annotations
 
 from .lawset import LawSet
-from .engine import Engine, LifeEngine, ExcitableEngine, ENGINES, make_engine
+from .engine import Engine, LifeEngine, ExcitableEngine, ForestFireEngine, ENGINES, make_engine
 from . import lawsets
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "Engine",
     "LifeEngine",
     "ExcitableEngine",
+    "ForestFireEngine",
     "ENGINES",
     "make_engine",
     "lawsets",
