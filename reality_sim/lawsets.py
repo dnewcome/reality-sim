@@ -173,16 +173,89 @@ def _color(rng: np.random.Generator, hue=None, sat=(0.55, 0.95), val=(0.85, 1.0)
     return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
+def _multistate_palette(rng: np.random.Generator, n: int) -> list[str]:
+    """State 0 = near-black background; states 1..n-1 = distinct vivid hues spread
+    around the color wheel, so a generated multi-state type reads clearly."""
+    pal = ["#07070d"]
+    base = float(rng.random())
+    for k in range(1, n):
+        hue = (base + 0.8 * k / max(n - 1, 1)) % 1.0
+        pal.append(_color(rng, hue=(hue, hue)))
+    return pal
+
+
+def random_totalistic_lawset(rng: np.random.Generator) -> LawSet:
+    """Invent a whole new automaton **type**: a multi-state totalistic CA with a
+    randomly generated transition table. Unlike the fixed families, the *rule
+    structure itself* is generated, so each one is a qualitatively different kind
+    of universe. Sparsity-biased (many entries map to 0) so patterns tend to live
+    on a background rather than saturate, and `T[0,0]=0` keeps empty space empty."""
+    n = int(rng.integers(3, 6))               # 3..5 states → visibly a new type
+    r = 1 if rng.random() < 0.75 else 2
+    cells = (2 * r + 1) ** 2 - 1
+    max_sum = cells * (n - 1)
+    quiet = float(rng.uniform(0.5, 0.8))      # sparsity: most contexts map to empty
+    table = np.where(
+        rng.random((n, max_sum + 1)) < quiet,
+        0, rng.integers(1, n, size=(n, max_sum + 1)),
+    ).astype(np.uint8)
+    table[0, 0] = 0
+    tag = int(rng.integers(1000, 10000))
+    return LawSet(
+        id=f"rnd-{tag}",
+        name=f"random type · {n}-state r{r}",
+        description=f"a procedurally generated universe TYPE — {n}-state totalistic CA (radius {r})",
+        family="totalistic",
+        states=n,
+        params={"radius": r, "table": table.tolist()},
+        palette=_multistate_palette(rng, n),
+        seed={"kind": "random", "density": round(float(rng.uniform(0.3, 0.7)), 2)},
+        controls=[{"key": "density", "label": "seed density", "type": "float", "min": 0.05, "max": 1.0, "step": 0.05}],
+    )
+
+
+def _type_interest(lawset: LawSet) -> float:
+    """Score a generated type by its free-evolution dynamics: reward alive,
+    sustained-but-moderate activity (structured motion, not frozen and not boiling)
+    and some spatial structure; ~0 for dead or chaotic. Reuses the sweep metrics."""
+    import math
+    from .metrics import measure_run
+    f = measure_run(lawset, size=64, steps=120, seed=0)
+    if not f["alive"]:
+        return 0.0
+    band = math.exp(-(((f["mean_activity"] - 0.1) / 0.1) ** 2))  # peak near 0.1
+    ent = min(f["spatial_entropy"], 3.5) / 3.5
+    sat = 1.0 if f["final_density"] < 0.9 else 0.3
+    return band * (0.4 + 0.6 * ent) * sat
+
+
+def random_type(rng: np.random.Generator, tries: int = 10) -> LawSet:
+    """Roll several random totalistic *types* and keep the most interesting one
+    (most of automata-space is chaos, so we sample and curate). This is the same
+    idea as the ML sweep, applied one roll at a time."""
+    best, best_score = None, -1.0
+    for _ in range(tries):
+        cand = random_totalistic_lawset(rng)
+        s = _type_interest(cand)
+        if s > best_score:
+            best, best_score = cand, s
+    return best
+
+
 def random_lawset(rng: np.random.Generator) -> LawSet:
     """Invent a fresh, random universe. Picks a random engine family and random
     parameters within sensible ranges, plus a random palette so every roll looks
-    distinct. Parameters are chosen to (usually) produce something alive rather
-    than instantly dead — e.g. excitable always uses threshold=1 (see
-    [[greenberg-hastings-tuning]]) — but the law itself is genuinely random."""
+    distinct. Sometimes generates a whole new *type* (a curated random totalistic
+    CA); otherwise a random rule within a known family. Excitable always uses
+    threshold=1 (see [[greenberg-hastings-tuning]])."""
     from . import rulespace  # local import avoids any import-order cycle
 
+    # "totalistic" appears twice → ~40% of rolls are a procedurally generated TYPE.
+    family = ("life", "excitable", "forestfire", "totalistic", "totalistic")[int(rng.integers(0, 5))]
+    if family == "totalistic":
+        return random_type(rng)
+
     tag = int(rng.integers(1000, 10000))
-    family = ("life", "excitable", "forestfire")[int(rng.integers(0, 3))]
 
     if family == "life":
         base = rulespace.bits_to_lawset(rulespace.random_bits(rng), lid=f"rnd-{tag}")

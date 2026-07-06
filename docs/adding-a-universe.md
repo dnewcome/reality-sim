@@ -25,7 +25,7 @@ The fields:
 | `id` | short stable identifier — used in URLs / the `set_lawset` command |
 | `name` | human label shown in the picker |
 | `description` | what this universe *is* / what emerges — shown under the picker |
-| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, or `"forestfire"` today) |
+| `family` | which engine evolves it; must be a key in `engine.ENGINES` (`"life"`, `"excitable"`, `"forestfire"`, or `"totalistic"` today) |
 | `states` | number of distinct cell states, `0..states-1` |
 | `params` | family-specific rule parameters (see below) |
 | `palette` | one `"#rrggbb"` string per state, index == state value |
@@ -52,6 +52,16 @@ For the **`"forestfire"`** family (stochastic, `states=3`: empty/tree/fire),
 cell grows a tree (`p`) and that a tree spontaneously ignites by lightning
 (`f`). A tree also ignites if any Moore neighbor is burning; fire always dies to
 empty next step. With `f` << `p` the model self-organizes to criticality.
+
+The **`"totalistic"`** family is different in kind: it is a *generative* family
+whose `params` are `{"radius": r, "table": [[...]]}`, where `table` has shape
+`(states, max_sum + 1)` and the rule is `next = table[state, neighbor_sum]`
+(`neighbor_sum` = the summed states of the radius-`r` Moore neighbors). Because
+the whole rule *is* a table, randomizing it generates new automaton **types**,
+not just new parameters — this is what backs the "🎲 New random universe" button's
+generated types (`lawsets.random_type()`), which rolls several and keeps the most
+interesting by the [sweep metrics](metrics.md). You normally generate these rather
+than hand-write them.
 
 ### Live-tunable controls
 

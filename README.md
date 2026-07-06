@@ -28,11 +28,19 @@ python -m reality_sim.server
 In the viewer: pick a universe, scrub speed, resize the grid, and **drag on the
 canvas to paint structures / inject signals** into a running universe. Hit
 **🎲 New random universe** (or `n`) to invent a fresh random law of physics —
-each roll is a random family (life rule / excitable medium / forest fire) with
-its own random palette.
+each roll is either a random *rule* in a known family (life / excitable / forest
+fire) or a whole new *type*: a **generative** multi-state totalistic CA with a
+randomly generated transition table. Most of automata-space is chaos, so the type
+generator rolls several and keeps the most interesting (scored with the same
+[sweep metrics](docs/metrics.md)).
 Keyboard: `space` play/pause, `s` step, `r` reseed, `n` new random universe.
 
 ![four random universes](docs/img/random.png)
+
+*Random **rules** (above) vs. procedurally generated **types** (below) — the
+totalistic family's random tables produce genuinely new kinds of automata:*
+
+![five generated types](docs/img/types.png)
 
 ## Headless / batch
 
@@ -138,6 +146,12 @@ writer, so there are no interleaved-send races.
 - **✅ infinite grids** — unbounded tiled plane for the life family; see
   [docs/infinite-grids.md](docs/infinite-grids.md). Next: extend the tiling to the
   excitable family, and 3D.
+- **✅ generative types** — the `totalistic` family generates new *kinds* of
+  automata (random transition tables), curated by the sweep metrics.
+- **new automata types (rule DSL)** — a grammar of update rules (states,
+  neighborhoods, kernels, growth functions) sampled to invent open-ended new
+  types beyond totalistic CA — continuous/Lenia, larger-than-life, reaction-
+  diffusion — with ML curation to find the gems.
 - **active search** — use the learned surrogate + Bayesian optimization to
   *propose* laws in the rare Complex corner instead of sampling uniformly.
 - **complexity / replication frontier** — measure how fast self-replicating or

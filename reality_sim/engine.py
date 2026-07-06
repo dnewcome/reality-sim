@@ -272,10 +272,67 @@ class ForestFireEngine(Engine):
         return base
 
 
+class TotalisticCA(Engine):
+    """A *generative* family: a multi-state outer-totalistic CA whose entire rule
+    is a random transition table. This is how we generate new universe **types**
+    rather than new parameters of a fixed type.
+
+    The rule is `next = T[current_state, neighbor_sum]`, where `neighbor_sum` is
+    the sum of the (radius-r Moore) neighbors' states and `T` is a table of shape
+    `(states, max_sum + 1)` with entries in `0..states-1`. Randomizing `T`,
+    `states`, and `r` spans a vast space of qualitatively different automata —
+    crystalline, cyclic/wave-like, life-like, chaotic — and it contains the other
+    families as special cases (which is the sign it's the right generalization).
+    Fully vectorized: one convolution for the neighbor sum, one fancy-index for
+    the whole grid's next state.
+    """
+
+    family = "totalistic"
+
+    def __init__(self, lawset, shape, rng):
+        self._configure(lawset)
+        super().__init__(lawset, shape, rng)
+
+    def _configure(self, lawset: LawSet) -> None:
+        self.n = int(lawset.states)
+        self.radius = int(lawset.params.get("radius", 1))
+        self.table = np.asarray(lawset.params["table"], dtype=np.uint8)
+        r = self.radius
+        kernel = np.ones((2 * r + 1, 2 * r + 1), dtype=np.uint8)
+        kernel[r, r] = 0
+        self.kernel = kernel
+        self.max_sum = int(kernel.sum()) * (self.n - 1)
+
+    def reconfigure(self, lawset: LawSet) -> None:
+        super().reconfigure(lawset)
+        self._configure(lawset)
+
+    def seed(self) -> None:
+        recipe = self.lawset.seed
+        kind = recipe.get("kind", "random")
+        if kind == "clear":
+            self.grid[:] = 0
+        elif kind == "random":
+            density = float(recipe.get("density", 0.5))
+            states = self.rng.integers(0, self.n, size=(self.h, self.w), dtype=np.uint8)
+            mask = self.rng.random((self.h, self.w)) < density
+            self.grid = np.where(mask, states, 0).astype(np.uint8)
+        else:
+            raise ValueError(f"unknown seed kind: {kind!r}")
+        self.generation = 0
+
+    def step(self) -> None:
+        s = ndimage.convolve(self.grid.astype(np.int32), self.kernel, mode="wrap")
+        np.clip(s, 0, self.max_sum, out=s)
+        self.grid = self.table[self.grid, s].astype(np.uint8)
+        self.generation += 1
+
+
 ENGINES: dict[str, type[Engine]] = {
     "life": LifeEngine,
     "excitable": ExcitableEngine,
     "forestfire": ForestFireEngine,
+    "totalistic": TotalisticCA,
 }
 
 
