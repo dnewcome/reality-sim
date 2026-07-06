@@ -281,6 +281,7 @@ class Session:
             "lawset": self.lawset_id,
             "name": ls.name,             # so one-off random universes can show a label
             "description": ls.description,
+            "family": ls.family,         # which engine/kind of automaton this is
             "playing": self.playing,
             "fps": self.fps,
             "w": self.w,

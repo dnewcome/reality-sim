@@ -147,6 +147,27 @@ button.disabled, button:disabled {
   background: #10233a;
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
+.now-playing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.now-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.family-badge {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #05070d;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.family-badge:empty { display: none; }
+
 .lawset-desc {
   margin: 10px 2px 0;
   font-size: 12.5px;

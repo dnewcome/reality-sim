@@ -7,6 +7,10 @@ let reconnectTimer = null;
 
 // ---- state -----------------------------------------------------------------
 const catalog = {};           // id -> lawset meta (name/description for the picker)
+const FAMILY_COLORS = {       // badge color per automaton family
+  life: "#5cc8ff", excitable: "#7ee8e0", forestfire: "#ff9d5c",
+  totalistic: "#c99bff", lenia: "#6be0b0",
+};
 let currentId = null;
 let builtForId = null;        // which universe the controls panel was built for
 let palette32 = new Uint32Array([0, 0xffffffff]); // state -> packed RGBA
@@ -127,6 +131,10 @@ function onJson(msg) {
     if (msg.palette) setPalette(msg.palette);   // live palette (may change with `states`)
     selectLawsetUI(currentId);
     if (msg.description) el("lawset-desc").textContent = msg.description;  // incl. one-off random universes
+    el("now-name").textContent = msg.name || "";
+    const badge = el("family-badge");                                     // which family this universe is
+    badge.textContent = msg.family || "";
+    badge.style.background = FAMILY_COLORS[msg.family] || "#8aa0c0";
     playing = msg.playing;
     el("btn-play").innerHTML = playing ? "&#10073;&#10073; Pause" : "&#9654; Play";
     el("fps").value = msg.fps;
