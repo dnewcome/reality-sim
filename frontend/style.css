@@ -116,6 +116,10 @@ button.disabled, button:disabled {
   color: var(--ink-dim);
   margin-bottom: 10px;
 }
+/* field group when unavailable (e.g. infinite mode) — dim but keep the label legible */
+.group.group-off { opacity: 0.5; }
+.group.group-off input, .group.group-off .toggle { pointer-events: none; }
+.field-shapes .toggle { flex: 1; padding-left: 0; padding-right: 0; }
 
 .dice {
   width: 100%;

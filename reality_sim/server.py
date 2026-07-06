@@ -16,6 +16,7 @@ Client -> server (JSON text): {"cmd": "...", ...}
     play | pause | step | reset | clear
     set_lawset {id}      set_fps {fps}      set_size {w,h}
     paint {r,c,value,radius}
+    set_field {shape,strength,angle}   (environment gradient that bends the physics)
 
 Server -> client:
     JSON  {"type":"catalog", "lawsets":[...], "current":id}   (once, on connect)
@@ -41,7 +42,7 @@ from aiohttp import WSMsgType, web
 
 from . import lawsets
 from .chunked import ChunkedLifeEngine
-from .engine import make_engine
+from .engine import make_engine, build_field
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -83,7 +84,17 @@ class Session:
         self.color_mode = "state"
         self.age = np.zeros((self.h, self.w), dtype=np.uint16)
 
+        # Environment field: a spatial gradient layered over whatever universe is
+        # loaded (universe-agnostic, like the boundary / color mode). Persists across
+        # universe changes so you can drop any physics into the same landscape.
+        self.field_shape = "none"     # none | linear | radial | noise
+        self.field_strength = 0.0     # 0..1
+        self.field_angle = 0.0        # degrees (linear only)
+        self.field_seed = int(self.rng.integers(1 << 31))  # fixed => noise is reproducible
+        self.field_arr = None         # cached full-res field (engine + overlay share it)
+
         self.engine = self._make_engine()
+        self._apply_field()
 
         self.frame_dirty = True   # a new frame needs sending this tick
         self.status_dirty = True  # structural state changed; resend status
@@ -160,6 +171,7 @@ class Session:
                 self.engine.view_w, self.engine.view_h = self.w, self.h
             else:
                 self.engine.resize((self.h, self.w))
+                self._apply_field()   # resize dropped the field; rebuild at the new size
             self._reset_age()
             self.frame_dirty = self.status_dirty = True
         elif c == "paint":
@@ -186,6 +198,8 @@ class Session:
         elif c == "set_color_mode":
             self.color_mode = "age" if cmd.get("mode") == "age" else "state"
             self.frame_dirty = self.status_dirty = True
+        elif c == "set_field":
+            self._set_field(cmd)
 
     def _paint(self, cmd: dict) -> None:
         try:
@@ -203,12 +217,65 @@ class Session:
             self.engine.paint(r, col, value, radius)
         self.frame_dirty = True
 
+    def _set_field(self, cmd: dict) -> None:
+        """Set the environment field — a spatial gradient that bends the dynamics
+        per cell. Universe-agnostic; each family interprets it in its own way."""
+        shape = cmd.get("shape")
+        if shape in ("none", "linear", "radial", "noise"):
+            if shape == "noise" and self.field_shape != "noise":
+                self.field_seed = int(self.rng.integers(1 << 31))   # fresh patch on (re)pick
+            self.field_shape = shape
+        if "strength" in cmd:
+            try:
+                self.field_strength = max(0.0, min(1.0, float(cmd["strength"])))
+            except (ValueError, TypeError):
+                pass
+        if "angle" in cmd:
+            try:
+                self.field_angle = float(cmd["angle"]) % 360.0
+            except (ValueError, TypeError):
+                pass
+        self._apply_field()
+        self.frame_dirty = self.status_dirty = True
+
+    def _field_active(self) -> bool:
+        return (self.field_shape != "none" and self.field_strength > 0.0
+                and not self.infinite and hasattr(self.engine, "set_field"))
+
+    def _apply_field(self) -> None:
+        """(Re)build the field at the current size and hand it to the engine. Called
+        whenever the engine, size, or field spec changes. Infinite mode has no field
+        (an unbounded plane has no fixed landscape). Noise uses a fixed seed so the
+        engine and the viewer overlay see the identical landscape."""
+        if not hasattr(self.engine, "set_field"):
+            return
+        if not self._field_active():
+            self.field_arr = None
+            self.engine.set_field(None, 0.0)
+            return
+        rng = np.random.default_rng(self.field_seed)
+        self.field_arr = build_field((self.h, self.w), self.field_shape, rng, self.field_angle)
+        self.engine.set_field(self.field_arr, self.field_strength)
+
+    def _field_map(self, n: int = 48):
+        """A small (n x n) uint8 thumbnail of the *cached* field for the viewer's
+        overlay (downsampled, so it matches exactly what the engine is using)."""
+        if not self._field_active() or self.field_arr is None:
+            return None
+        h, w = self.field_arr.shape
+        ri = np.linspace(0, h - 1, min(n, h)).astype(int)
+        ci = np.linspace(0, w - 1, min(n, w)).astype(int)
+        thumb = self.field_arr[np.ix_(ri, ci)]
+        q = np.clip((thumb * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+        return {"h": thumb.shape[0], "w": thumb.shape[1], "cells": q.flatten().tolist()}
+
     def _set_boundary(self, mode) -> None:
         want = (mode == "infinite") and self.lawset.family == "life"
         self.infinite = want
         self.cam_x = self.cam_y = 0
         self.zoom = 1
         self.engine = self._make_engine()
+        self._apply_field()
         self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
@@ -220,6 +287,7 @@ class Session:
         self.cam_x = self.cam_y = 0
         self.zoom = 1
         self.engine = self._make_engine()
+        self._apply_field()             # the field is an environment: it persists across universes
         self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
@@ -235,6 +303,7 @@ class Session:
             self.cam_x = self.cam_y = 0
             self.zoom = 1
         self.engine = self._make_engine()
+        self._apply_field()
         self._reset_age()
         self.frame_dirty = self.status_dirty = True
 
@@ -340,6 +409,13 @@ class Session:
             "infinite": self.infinite,   # is the world an unbounded plane right now
             "can_infinite": ls.family == "life",  # is infinite even available here
             "zoom": self.zoom,
+            "field": {                   # the environment-field spec + a thumbnail to overlay
+                "shape": self.field_shape,
+                "strength": self.field_strength,
+                "angle": self.field_angle,
+                "available": not self.infinite,   # fields are off on the infinite plane
+                "map": self._field_map(),
+            },
         })
 
     # -- main loop -------------------------------------------------------

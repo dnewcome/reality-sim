@@ -198,6 +198,32 @@ That's the entire seam: `LawSet.family` plus the `ENGINES` dict is what makes
 the system pluggable, and it's intentionally the *only* place new physics has
 to be wired in.
 
+### (Optional) React to the environment field
+
+The base `Engine` carries an optional **environment field** — a spatial gradient
+`F(x, y) ∈ [-1, 1]` a universe can be dropped into (see the "Fields" section of the
+README). It's universe-agnostic: the field is the *same* array whatever the family,
+and each engine decides what it *means*. The base class does the plumbing (building
+the field, its gradient, and the strength scaling); your `step()` just reads whichever
+of these is convenient and skips the block when there's no field:
+
+- `self.env_bias` — the per-cell push `strength · F` in `[-1, 1]`, or `None` when no
+  field is set. This is what the *rate-based / continuous* families use: forest-fire
+  scales its growth `p` by `1 + 3·env_bias`, level-set adds `0.6·env_bias` to its
+  normal speed, excitable turns firing into a coin-flip with probability `0.5 + env_bias`.
+- `self.env_gx`, `self.env_gy` — the field's gradient, for **drift**: Lenia advects its
+  field up-gradient (`A -= speed · (∇F/|∇F|)·∇A`) so structures migrate toward high `F`.
+- `self._env_habitable()` — a boolean mask (or `None`) for the *discrete* families:
+  cells may only live where `F` clears a strength-scaled threshold. Life and the
+  totalistic type both `&=` (or zero) their next grid with it to confine a pattern.
+
+The one rule: **guard on `None`** (`if self.env_bias is not None:`) so a universe with no
+field runs exactly as before. Everything else — building the field from the viewer's
+shape/strength/angle, re-applying it after a resize or a universe switch, and streaming
+a thumbnail for the overlay — is handled in `server.py` (`_apply_field`) with no
+per-family code. If your new family has an obvious "how things move / grow / survive"
+knob, coupling it to the field is usually two or three lines.
+
 ## Gotcha: the excitable engine needs `threshold=1` to sustain waves
 
 The shipped `"excitable"` LawSet uses `params={"threshold": 1}` with `states =

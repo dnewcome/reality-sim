@@ -9,7 +9,16 @@ let reconnectTimer = null;
 const catalog = {};           // id -> lawset meta (name/description for the picker)
 const FAMILY_COLORS = {       // badge color per automaton family
   life: "#5cc8ff", excitable: "#7ee8e0", forestfire: "#ff9d5c",
-  totalistic: "#c99bff", lenia: "#6be0b0",
+  totalistic: "#c99bff", lenia: "#6be0b0", levelset: "#ffb0d0",
+};
+// What the environment field *does* in each family — so the hint tells the truth.
+const FAMILY_FIELD_HINT = {
+  life: "life clings to the bright region, dies out in the dark",
+  totalistic: "the pattern is confined to the bright region",
+  excitable: "waves refract — fast where bright, stalling in the dark",
+  forestfire: "forest is lush where bright, desert where dark",
+  lenia: "creatures drift up-gradient toward the bright region",
+  levelset: "shapes grow toward the bright region, erode in the dark",
 };
 let currentId = null;
 let builtForId = null;        // which universe the controls panel was built for
@@ -21,6 +30,17 @@ let playing = true;
 
 let brushRadius = 2;
 let tool = "paint";           // "paint" | "erase" | "pan"
+
+// environment field (a spatial gradient that modulates the dynamics)
+let fieldShape = "none";
+let fieldStrength = 0.5;
+let fieldAngle = 0;
+let showField = true;
+let fieldMap = null;          // Uint8Array thumbnail of F, 0..255
+let fieldMapW = 0, fieldMapH = 0;
+const fieldCanvas = document.createElement("canvas");
+const fieldCtx = fieldCanvas.getContext("2d");
+let fieldImg = null;
 
 // infinite-grid mode
 let infinite = false;
@@ -86,7 +106,31 @@ function render() {
   }
   offCtx.putImageData(imgData, 0, 0);
   ctx.drawImage(off, 0, 0, view.width, view.height);
+  if (showField && fieldMap) renderFieldOverlay();
   updateStats();
+}
+
+// Tint the canvas with the field: warm where F>0, cool where F<0, alpha ~ |F|.
+// Drawn smoothed so the coarse thumbnail becomes a soft gradient over the cells.
+function renderFieldOverlay() {
+  if (fieldMapW !== fieldCanvas.width || fieldMapH !== fieldCanvas.height || !fieldImg) {
+    fieldCanvas.width = fieldMapW;
+    fieldCanvas.height = fieldMapH;
+    fieldImg = fieldCtx.createImageData(fieldMapW, fieldMapH);
+  }
+  const d = fieldImg.data;
+  for (let i = 0; i < fieldMap.length; i++) {
+    const v = fieldMap[i] / 255 * 2 - 1;       // -1..1
+    const j = i * 4;
+    if (v >= 0) { d[j] = 255; d[j + 1] = 150; d[j + 2] = 60; }   // warm = high
+    else { d[j] = 70; d[j + 1] = 150; d[j + 2] = 255; }          // cool = low
+    d[j + 3] = Math.min(180, Math.abs(v) * 200);                  // alpha ~ |F|
+  }
+  fieldCtx.putImageData(fieldImg, 0, 0);
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(fieldCanvas, 0, 0, view.width, view.height);
+  ctx.imageSmoothingEnabled = smooth;
 }
 
 function updateStats() {
@@ -147,6 +191,7 @@ function onJson(msg) {
     const cm = msg.color_mode || "state";     // reflect color mode on the toggle
     el("btn-color-state").classList.toggle("on", cm === "state");
     el("btn-color-age").classList.toggle("on", cm === "age");
+    updateFieldUI(msg.field, msg.family);
     // (Re)build the parameter panel only when the universe changes, so tuning a
     // knob (which echoes a status) never yanks a slider out from under the mouse.
     if (msg.controls && msg.lawset !== builtForId) {
@@ -165,6 +210,43 @@ function onJson(msg) {
     el("stat-cam").textContent = `${msg.cx},${msg.cy}`;
     el("stat-zoom").textContent = msg.zoom;
   }
+}
+
+function updateFieldUI(field, family) {
+  if (!field) return;
+  fieldShape = field.shape || "none";
+  if (field.strength != null) fieldStrength = field.strength;
+  if (field.angle != null) fieldAngle = field.angle;
+
+  // Overlay thumbnail (server-authored so noise matches exactly what the engine uses).
+  if (field.map && field.map.cells) {
+    fieldMap = Uint8Array.from(field.map.cells);
+    fieldMapW = field.map.w; fieldMapH = field.map.h;
+  } else {
+    fieldMap = null;
+  }
+
+  for (const b of document.querySelectorAll(".field-shapes .toggle"))
+    b.classList.toggle("on", b.dataset.shape === fieldShape);
+  // Don't fight the user's hand: only sync a slider when it isn't being dragged.
+  const sEl = el("field-strength"), aEl = el("field-angle");
+  if (document.activeElement !== sEl) {
+    sEl.value = fieldStrength;
+    el("field-strength-val").textContent = Number(fieldStrength).toFixed(2);
+  }
+  if (document.activeElement !== aEl) {
+    aEl.value = fieldAngle;
+    el("field-angle-val").textContent = Math.round(fieldAngle);
+  }
+  el("field-angle-row").style.display = fieldShape === "linear" ? "" : "none";
+  el("btn-field-show").classList.toggle("on", showField);
+
+  const avail = field.available !== false;
+  el("field-group").classList.toggle("group-off", !avail);
+  const hint = el("field-hint");
+  if (!avail) hint.textContent = "fields are off on the infinite plane";
+  else if (fieldShape === "none") hint.textContent = "drop the universe into a landscape";
+  else hint.textContent = FAMILY_FIELD_HINT[family] || "a gradient modifies each cell";
 }
 
 function updateBoundaryUI() {
@@ -371,6 +453,31 @@ el("btn-recenter").onclick = () => send({ cmd: "recenter" });
 
 el("btn-color-state").onclick = () => send({ cmd: "set_color_mode", mode: "state" });
 el("btn-color-age").onclick = () => send({ cmd: "set_color_mode", mode: "age" });
+
+// environment-field controls
+for (const b of document.querySelectorAll(".field-shapes .toggle")) {
+  b.onclick = () => {
+    const shape = b.dataset.shape;
+    // picking a shape while strength is 0 wouldn't do anything visible — nudge it up
+    if (shape !== "none" && fieldStrength <= 0) fieldStrength = 0.5;
+    send({ cmd: "set_field", shape, strength: fieldStrength, angle: fieldAngle });
+  };
+}
+el("field-strength").oninput = (e) => {
+  fieldStrength = parseFloat(e.target.value);
+  el("field-strength-val").textContent = fieldStrength.toFixed(2);
+  send({ cmd: "set_field", shape: fieldShape, strength: fieldStrength, angle: fieldAngle });
+};
+el("field-angle").oninput = (e) => {
+  fieldAngle = parseInt(e.target.value, 10);
+  el("field-angle-val").textContent = fieldAngle;
+  send({ cmd: "set_field", shape: fieldShape, strength: fieldStrength, angle: fieldAngle });
+};
+el("btn-field-show").onclick = () => {
+  showField = !showField;
+  el("btn-field-show").classList.toggle("on", showField);
+  render();
+};
 
 // keyboard: space = play/pause, s = step
 window.addEventListener("keydown", (e) => {

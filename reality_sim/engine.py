@@ -20,6 +20,8 @@ Design notes
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy import ndimage
 
@@ -29,6 +31,42 @@ from .lawset import LawSet
 MOORE = np.array([[1, 1, 1],
                   [1, 0, 1],
                   [1, 1, 1]], dtype=np.uint8)
+
+
+def build_field(shape: tuple[int, int], kind: str,
+                rng: np.random.Generator | None = None, angle: float = 0.0) -> np.ndarray | None:
+    """Build an **environment field** F(x, y) in [-1, 1] over the grid — a smooth
+    spatial gradient a universe can be dropped into so its dynamics vary from place
+    to place (fertile vs. barren, fast vs. slow, a basin that traps structure).
+
+    The field is *not* part of the physics; it's an environment layered on top, and
+    each engine family reads it as a per-cell modifier of its own most natural knob.
+    Shapes:
+      * ``"linear"`` — a ramp along ``angle`` (degrees): a directional slope / "wind".
+      * ``"radial"`` — a hill peaked at the center, falling to the corners: a basin.
+      * ``"noise"`` — smooth low-frequency value noise: irregular patches.
+    Returns ``None`` for ``"none"`` (no field)."""
+    h, w = shape
+    if kind in (None, "none"):
+        return None
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
+    nx = xx / max(w - 1, 1)
+    ny = yy / max(h - 1, 1)
+    if kind == "linear":
+        a = math.radians(angle)
+        f = math.cos(a) * (nx - 0.5) + math.sin(a) * (ny - 0.5)
+    elif kind == "radial":
+        f = -np.hypot(nx - 0.5, ny - 0.5)          # peak at center, low at corners
+    elif kind == "noise":
+        gen = rng if rng is not None else np.random.default_rng()
+        f = ndimage.gaussian_filter(gen.random((h, w)), sigma=max(h, w) / 12.0, mode="wrap")
+    else:
+        return None
+    f -= f.min()
+    m = f.max()
+    if m > 0:
+        f /= m                                     # 0..1
+    return (f * 2.0 - 1.0).astype(np.float64)      # -1..1
 
 
 class Engine:
@@ -41,8 +79,39 @@ class Engine:
         self.h, self.w = shape
         self.rng = rng
         self.generation = 0
+        # Environment field (optional): a spatial modifier layered over the physics.
+        # `env` is F(x,y) in [-1,1]; `env_bias` is strength*F (the per-cell push);
+        # `env_gx/gy` its gradient (for drift). None => no field => original dynamics.
+        self.env = None
+        self.env_bias = None
+        self.env_gx = self.env_gy = None
+        self.env_strength = 0.0
         self.grid = np.zeros(shape, dtype=np.uint8)
         self.seed()
+
+    # -- environment field -----------------------------------------------
+    def set_field(self, field: np.ndarray | None, strength: float) -> None:
+        """Attach (or clear) an environment field F(x,y) in [-1,1]. `strength` in
+        [0,1] scales how hard it bends the dynamics; 0 or ``None`` disables it. The
+        field is universe-agnostic — each family's ``step`` decides what F *means*."""
+        strength = float(strength)
+        if field is None or strength <= 0.0:
+            self.env = self.env_bias = self.env_gx = self.env_gy = None
+            self.env_strength = 0.0
+            return
+        self.env = np.asarray(field, dtype=np.float64)
+        self.env_strength = strength
+        self.env_bias = strength * self.env               # s*F, the per-cell push in [-1,1]
+        gy, gx = np.gradient(self.env)
+        self.env_gx, self.env_gy = gx, gy
+
+    def _env_habitable(self) -> np.ndarray | None:
+        """A boolean habitability mask for the discrete families: cells may only
+        live where F clears a strength-scaled threshold (s=0 → everywhere, s=1 →
+        only the field's peak). Confines a pattern to the bright region."""
+        if self.env is None:
+            return None
+        return self.env >= (2.0 * self.env_strength - 1.0)
 
     # -- lifecycle -------------------------------------------------------
     def seed(self) -> None:
@@ -85,6 +154,7 @@ class Engine:
 
     def resize(self, shape: tuple[int, int]) -> None:
         self.h, self.w = shape
+        self.set_field(None, 0.0)          # old field is the wrong shape; caller re-applies
         self.grid = np.zeros(shape, dtype=np.uint8)
         self.seed()
 
@@ -135,7 +205,11 @@ class LifeEngine(Engine):
         counts = ndimage.convolve(self.grid, MOORE, mode="wrap")
         born = ~alive & self._birth_lut[counts]
         survive = alive & self._survival_lut[counts]
-        self.grid = (born | survive).astype(np.uint8)
+        nxt = born | survive
+        habitable = self._env_habitable()
+        if habitable is not None:                 # field: life only in the bright region
+            nxt &= habitable
+        self.grid = nxt.astype(np.uint8)
         self.generation += 1
 
 
@@ -194,7 +268,13 @@ class ExcitableEngine(Engine):
         refractory = self.grid >= 1
 
         # Resting -> excited where enough neighbors are firing.
-        new[resting & (excited_neighbors >= self.threshold)] = 1
+        can_fire = resting & (excited_neighbors >= self.threshold)
+        if self.env_bias is not None:
+            # Field modulates *excitability*: high F fires readily, low F resists,
+            # so wavefronts speed up / stall by region — refraction and speed gradients.
+            prob = np.clip(0.5 + self.env_bias, 0.0, 1.0)
+            can_fire &= self.rng.random(self.grid.shape) < prob
+        new[can_fire] = 1
         # Excited / refractory advance one step; last state wraps back to rest.
         advanced = self.grid.astype(np.int16) + 1
         advanced[advanced >= self.n] = 0
@@ -259,9 +339,16 @@ class ForestFireEngine(Engine):
         burning_neighbors = ndimage.convolve(fire.astype(np.uint8), MOORE, mode="wrap")
         r = self.rng.random(g.shape)
 
+        p_grow = self.p
+        if self.env_bias is not None:
+            # Field is *fertility*: trees sprout fast where F is high, rarely where
+            # low — lush regions vs. deserts, and fire races through the dense parts.
+            # (Self-organized criticality damps this, so we push the growth rate hard.)
+            p_grow = np.clip(self.p * (1.0 + 3.0 * self.env_bias), 0.0, 1.0)
+
         new = np.where(fire, self.EMPTY, g).astype(np.uint8)
         new[tree & ((burning_neighbors > 0) | (r < self.f))] = self.FIRE
-        new[empty & (r < self.p)] = self.TREE
+        new[empty & (r < p_grow)] = self.TREE
         self.grid = new
         self.generation += 1
 
@@ -324,7 +411,11 @@ class TotalisticCA(Engine):
     def step(self) -> None:
         s = ndimage.convolve(self.grid.astype(np.int32), self.kernel, mode="wrap")
         np.clip(s, 0, self.max_sum, out=s)
-        self.grid = self.table[self.grid, s].astype(np.uint8)
+        nxt = self.table[self.grid, s].astype(np.uint8)
+        habitable = self._env_habitable()
+        if habitable is not None:                 # field: confine the type to the bright region
+            nxt[~habitable] = 0
+        self.grid = nxt
         self.generation += 1
 
 
@@ -406,6 +497,15 @@ class LeniaEngine(Engine):
         u = ndimage.convolve(self.field, self.kernel, mode="wrap")
         g = 2.0 * np.exp(-((u - self.mu) ** 2) / (2.0 * self.sigma ** 2)) - 1.0
         self.field = np.clip(self.field + self.dt * g, 0.0, 1.0)
+        if self.env_bias is not None:
+            # Field is a *current*: advect the creatures up the gradient (toward high
+            # F). Solving dA/dt = -c·grad(A) with c = normalized grad(F) drifts mass
+            # in the +F direction — the literal "the field changes how things move".
+            ay, ax = np.gradient(self.field)
+            mag = np.hypot(self.env_gx, self.env_gy) + 1e-9
+            ux, uy = self.env_gx / mag, self.env_gy / mag
+            speed = 0.5 * self.env_strength
+            self.field = np.clip(self.field - speed * (ux * ax + uy * ay), 0.0, 1.0)
         self.generation += 1
         self._quantize()
 
@@ -513,9 +613,12 @@ class LevelSetEngine(Engine):
         nx, ny = gx / mag, gy / mag
         kappa = np.gradient(nx, axis=1) + np.gradient(ny, axis=0)   # divergence of normal
         np.clip(kappa, -1.0, 1.0, out=kappa)
+        # Field makes the normal speed *spatial*: shapes inflate toward high F and
+        # erode where F is low, so they migrate up-gradient and pool in the maxima.
+        grow = self.grow if self.env_bias is None else self.grow + 0.6 * self.env_bias
         # Evolve the field continuously so sub-cell motion accumulates; re-distance
         # only every `reinit` steps (else a hard phi<0 threshold would freeze motion).
-        self.phi = phi - self.grow + self.tension * kappa
+        self.phi = phi - grow + self.tension * kappa
         self._rc += 1
         if self._rc >= self.reinit:
             self._redistance(self.phi < 0)

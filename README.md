@@ -68,6 +68,30 @@ re-distancing each step via `scipy`'s distance transform. Tune **grow/erode** an
 
 ![level-set shapes](docs/img/levelset.png)
 
+## Fields — a landscape the physics reacts to
+
+Every universe so far is *homogeneous*: the same law everywhere. **Fields** break that.
+A field is a smooth spatial gradient F(x, y) ∈ [−1, 1] — a **ramp**, a **basin**, or
+**noise** — layered *over* whatever universe is loaded, tunable by strength. It's an
+environment, orthogonal to the physics, so the **same field bends every family
+differently** — each engine reads F as a per-cell modifier of its own most natural knob:
+
+| family | what the field does |
+|--------|---------------------|
+| life / totalistic | **habitability** — the pattern clings to the bright region and dies out in the dark (a basin traps a colony) |
+| excitable | **excitability** — wavefronts speed up where it's bright and stall where it's dark, so waves *refract* |
+| forest fire | **fertility** — lush forest where bright, barren desert where dark (a fertile island in a dead sea) |
+| lenia | **advection** — a current that carries the creatures *up-gradient*, toward the bright region |
+| level set | **speed** — shapes grow toward the bright region and erode in the dark, so they migrate and pool in the maxima |
+
+![one field, six physics](docs/img/field.png)
+
+Pick a shape and drag **strength** in the viewer (the overlay tints the canvas warm/cool
+so you can see the landscape under the cells). The field persists as you switch universes —
+drop any physics into the same terrain and watch it react. Fields are off on the infinite
+plane (an unbounded world has no fixed landscape). This is the first step toward
+**stitched universes** — a wall between two different laws — on the roadmap below.
+
 ## Headless / batch
 
 ```python
@@ -181,6 +205,10 @@ writer, so there are no interleaved-send races.
 - **✅ SDF / level-set automaton** — the `levelset` family: a universe of shapes
   (grow/erode + surface tension + exact re-distancing). Three type-primitives now:
   discrete tables, continuous fields, and geometric distance fields.
+- **✅ fields** — a spatial gradient (ramp / basin / noise) layered over any
+  universe as a per-cell modifier: habitability, refraction, fertility, advection,
+  or growth speed depending on the family. The same field bends each physics
+  differently; a stepping stone to stitched-together worlds.
 - **more type-primitives** — graph / network automata (CA on an arbitrary
   node-edge topology, no lattice), 1D elementary CA (Rule 30/110, à la *A New Kind
   of Science*), hex / triangular grids, larger-than-life, reaction-diffusion — all

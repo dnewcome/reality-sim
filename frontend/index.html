@@ -49,6 +49,28 @@
         <div id="controls"></div>
       </div>
 
+      <div class="group" id="field-group">
+        <div class="group-label">field &mdash; a gradient that bends the physics</div>
+        <div class="transport field-shapes">
+          <button id="field-none" class="toggle on" data-shape="none">off</button>
+          <button id="field-linear" class="toggle" data-shape="linear">ramp</button>
+          <button id="field-radial" class="toggle" data-shape="radial">basin</button>
+          <button id="field-noise" class="toggle" data-shape="noise">noise</button>
+        </div>
+        <label class="slider">
+          <span>strength <b id="field-strength-val">0.5</b></span>
+          <input type="range" id="field-strength" min="0" max="1" step="0.05" value="0.5" />
+        </label>
+        <label class="slider" id="field-angle-row">
+          <span>angle <b id="field-angle-val">0</b>&deg;</span>
+          <input type="range" id="field-angle" min="0" max="360" step="15" value="0" />
+        </label>
+        <div class="transport" style="margin-top:8px">
+          <button id="btn-field-show" class="toggle on">show field</button>
+        </div>
+        <div class="hint" id="field-hint">drop the universe into a landscape</div>
+      </div>
+
       <div class="group">
         <div class="group-label">time</div>
         <div class="transport">
